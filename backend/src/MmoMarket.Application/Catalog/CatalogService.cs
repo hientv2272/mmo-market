@@ -22,23 +22,22 @@ public class CatalogService
 
     public async Task<ProductListResponse> ListAsync(string? category, string? sort, int page, int pageSize, CancellationToken ct)
     {
+        var now = DateTime.UtcNow;
         var query = _db.Products.Include(p => p.Seller).AsQueryable();
-        if (!string.IsNullOrWhiteSpace(category))
-        {
-            if (category == "bestseller")
-                query = query.OrderByDescending(p => p.Sold);
-            else
-                query = query.Where(p => p.CategorySlug == category);
-        }
+        if (!string.IsNullOrWhiteSpace(category) && category != "bestseller")
+            query = query.Where(p => p.CategorySlug == category);
 
-        query = sort switch
+        // Tin đang boost luôn lên đầu, sau đó tới tiêu chí sort được chọn (mặc định theo Sold).
+        var ordered = query.OrderByDescending(p => p.BoostedUntil != null && p.BoostedUntil > now);
+        ordered = sort switch
         {
-            "price_asc" => query.OrderBy(p => p.Price),
-            "price_desc" => query.OrderByDescending(p => p.Price),
-            "rating" => query.OrderByDescending(p => p.Rating),
-            "newest" => query.OrderByDescending(p => p.CreatedAt),
-            _ => category == "bestseller" ? query : query.OrderByDescending(p => p.Sold)
+            "price_asc"  => ordered.ThenBy(p => p.Price),
+            "price_desc" => ordered.ThenByDescending(p => p.Price),
+            "rating"     => ordered.ThenByDescending(p => p.Rating),
+            "newest"     => ordered.ThenByDescending(p => p.CreatedAt),
+            _            => ordered.ThenByDescending(p => p.Sold),
         };
+        query = ordered;
 
         var total = await query.CountAsync(ct);
         var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
@@ -81,10 +80,16 @@ public class CatalogService
         return (MapSeller(s), products.Select(MapList).ToArray());
     }
 
-    public static ProductListItemDto MapList(Product p) => new(
-        p.Id, p.Slug, p.Title, p.CategorySlug, p.Price, p.ComparePrice,
-        p.Delivery.ToString(), p.WarrantyDays, p.Stock, p.Sold, p.Rating, p.ReviewCount,
-        p.ThumbnailColor, p.ThumbnailIcon, DeserializeArr(p.BadgesJson), MapSeller(p.Seller!));
+    public static ProductListItemDto MapList(Product p)
+    {
+        var badges = DeserializeArr(p.BadgesJson);
+        if (p.BoostedUntil.HasValue && p.BoostedUntil.Value > DateTime.UtcNow)
+            badges = new[] { "Top" }.Concat(badges).ToArray();
+        return new(
+            p.Id, p.Slug, p.Title, p.CategorySlug, p.Price, p.ComparePrice,
+            p.Delivery.ToString(), p.WarrantyDays, p.Stock, p.Sold, p.Rating, p.ReviewCount,
+            p.ThumbnailColor, p.ThumbnailIcon, badges, MapSeller(p.Seller!));
+    }
 
     public static SellerSummaryDto MapSeller(Seller s) => new(
         s.Id, s.Username, s.DisplayName, s.AvatarColor, s.Rating, s.ReviewCount,

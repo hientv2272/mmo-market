@@ -14,7 +14,9 @@ public record SellerProductDto(
     string Delivery, int WarrantyDays, int Stock, int Sold, double Rating, int ReviewCount,
     string ThumbnailColor, string? ThumbnailIcon, string Status, string Description,
     int InventoryAvailable, int InventoryReserved, int InventorySold,
-    decimal DepositAmount, string DepositStatus);
+    decimal DepositAmount, string DepositStatus, DateTime? BoostedUntil);
+
+public record BoostInfoDto(int Quota, int Used, int Remaining, int DurationHours);
 
 public record SellerProductCreateDto(
     string Title, string CategorySlug, decimal Price, decimal? ComparePrice, string Delivery,
@@ -260,6 +262,49 @@ public class SellerService
         await _db.SaveChangesAsync(ct);
     }
 
+    // ── Boost / đẩy tin ───────────────────────────────────────────────────────
+    public async Task<SellerProductDto> BoostProductAsync(Guid userId, Guid productId, CancellationToken ct)
+    {
+        var seller = await GetSellerForUserAsync(userId, ct);
+        var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == productId && p.SellerId == seller.Id, ct)
+            ?? throw new AppException("Không tìm thấy sản phẩm", 404);
+        if (product.Status != ProductStatus.Active)
+            throw new AppException("Chỉ boost được sản phẩm đang hoạt động (Active)");
+
+        var now = DateTime.UtcNow;
+        if (product.BoostedUntil.HasValue && product.BoostedUntil.Value > now)
+            throw new AppException($"Sản phẩm đang được boost (đến {product.BoostedUntil.Value:HH:mm dd/MM})");
+
+        var plan = await _plans.ResolvePlanAsync(seller, ct);
+        if (plan.BoostsPerMonth <= 0)
+            throw new AppException("Gói hiện tại không có lượt boost. Vui lòng nâng cấp gói.");
+
+        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var used = await _db.BoostLogs.CountAsync(b => b.SellerId == seller.Id && b.CreatedAt >= monthStart, ct);
+        if (used >= plan.BoostsPerMonth)
+            throw new AppException($"Đã hết lượt boost tháng này ({used}/{plan.BoostsPerMonth}). Nâng cấp gói để có thêm.");
+
+        var hours = await _config.GetIntAsync(ConfigKeys.BoostDurationHours, 24, ct);
+        product.BoostedUntil = now.AddHours(hours);
+        _db.BoostLogs.Add(new BoostLog { SellerId = seller.Id, ProductId = product.Id });
+        AddAudit(userId, "Seller", "product_boost", "Product", product.Slug, null,
+            $"Boost sản phẩm {product.Title} trong {hours}h");
+        await _db.SaveChangesAsync(ct);
+        var inv = await _db.InventoryItems.Where(i => i.ProductId == product.Id).ToListAsync(ct);
+        return MapProduct(product, inv);
+    }
+
+    public async Task<BoostInfoDto> GetBoostInfoAsync(Guid userId, CancellationToken ct)
+    {
+        var seller = await GetSellerForUserAsync(userId, ct);
+        var plan = await _plans.ResolvePlanAsync(seller, ct);
+        var now = DateTime.UtcNow;
+        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var used = await _db.BoostLogs.CountAsync(b => b.SellerId == seller.Id && b.CreatedAt >= monthStart, ct);
+        var hours = await _config.GetIntAsync(ConfigKeys.BoostDurationHours, 24, ct);
+        return new BoostInfoDto(plan.BoostsPerMonth, used, Math.Max(0, plan.BoostsPerMonth - used), hours);
+    }
+
     public async Task<SellerOrderLineDto[]> ListMyOrdersAsync(Guid userId, string? status, CancellationToken ct)
     {
         var seller = await GetSellerForUserAsync(userId, ct);
@@ -387,7 +432,7 @@ public class SellerService
         inv.Count(i => !i.Reserved && !i.Sold),
         inv.Count(i => i.Reserved && !i.Sold),
         inv.Count(i => i.Sold),
-        p.DepositAmount, p.DepositStatus.ToString());
+        p.DepositAmount, p.DepositStatus.ToString(), p.BoostedUntil);
 
     private static SellerOrderLineDto MapOrderLine(OrderLine l)
     {

@@ -48,6 +48,7 @@ public static class ConfigKeys
     public const string ListingDepositPercent = "listing_deposit_percent";
     public const string ListingDepositMin     = "listing_deposit_min";
     public const string ListingDepositMax     = "listing_deposit_max";
+    public const string BoostDurationHours    = "boost_duration_hours";
     // Trust Score (P2.1, §8) — delta điểm uy tín
     public const string TrustStart           = "trust_start";
     public const string TrustComplete5Star   = "trust_complete_5star";

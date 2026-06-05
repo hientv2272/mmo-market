@@ -424,6 +424,16 @@ public static class Seeder
                 UpdatedAt TEXT NULL
             );
             CREATE UNIQUE INDEX IF NOT EXISTS IX_SellerPlans_Code ON SellerPlans(Code);
+
+            -- Boost / day tin
+            CREATE TABLE IF NOT EXISTS BoostLogs (
+                Id TEXT NOT NULL CONSTRAINT PK_BoostLogs PRIMARY KEY,
+                SellerId TEXT NOT NULL,
+                ProductId TEXT NOT NULL,
+                CreatedAt TEXT NOT NULL,
+                UpdatedAt TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_BoostLogs_SellerId_CreatedAt ON BoostLogs(SellerId, CreatedAt);
         ", ct);
 
         // Thêm cột mới cho bảng đã tồn tại (SQLite không hỗ trợ ADD COLUMN IF NOT EXISTS).
@@ -438,6 +448,7 @@ public static class Seeder
         await AddColumnIfMissingAsync(db, "Sellers", "LastTrustBonusAt", "TEXT NULL", ct);
         await AddColumnIfMissingAsync(db, "KycSubmissions", "FrontImage", "TEXT NULL", ct);
         await AddColumnIfMissingAsync(db, "KycSubmissions", "BackImage", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Products", "BoostedUntil", "TEXT NULL", ct);
     }
 
     /// <summary>Thêm cột vào bảng nếu chưa tồn tại (idempotent cho SQLite).</summary>
@@ -494,6 +505,7 @@ public static class Seeder
             ["listing_deposit_percent"]   = "5",
             ["listing_deposit_min"]       = "10000",
             ["listing_deposit_max"]       = "500000",
+            ["boost_duration_hours"]      = "24",
             // Trust Score (P2.1, §8)
             ["trust_start"]               = "80",
             ["trust_complete_5star"]      = "2",

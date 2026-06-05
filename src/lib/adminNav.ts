@@ -24,6 +24,7 @@ export const adminNav: NavGroup[] = [
     items: [
       { href: "/admin/banners", label: "Banner & Flash sale", icon: "image" },
       { href: "/admin/fees", label: "Phí sàn & Loyalty", icon: "sliders" },
+      { href: "/admin/plans", label: "Gói Seller", icon: "crown" },
       { href: "/admin/settings", label: "Cấu hình hệ thống", icon: "settings" },
     ],
   },

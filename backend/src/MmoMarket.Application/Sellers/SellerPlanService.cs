@@ -11,6 +11,12 @@ public record SellerPlanDto(string Code, string Name, decimal PricePerMonth, dec
 public record CurrentPlanDto(string Code, string Name, decimal FeeDiscountPercent, int MaxListings,
     int BoostsPerMonth, string? Badge, DateTime? ExpiresAt, bool Active);
 
+public record AdminPlanUpsertDto(string Code, string Name, decimal PricePerMonth, decimal FeeDiscountPercent,
+    int MaxListings, int BoostsPerMonth, string? Badge, int Position, bool IsActive);
+
+public record AdminPlanDto(Guid Id, string Code, string Name, decimal PricePerMonth, decimal FeeDiscountPercent,
+    int MaxListings, int BoostsPerMonth, string? Badge, int Position, bool IsActive);
+
 public class SellerPlanService
 {
     private readonly IAppDbContext _db;
@@ -97,4 +103,60 @@ public class SellerPlanService
     private static SellerPlanDto Map(SellerPlan p) => new(
         p.Code, p.Name, p.PricePerMonth, p.FeeDiscountPercent,
         p.MaxListings, p.BoostsPerMonth, p.Badge, p.Position, p.IsActive);
+
+    // ── Admin CRUD ────────────────────────────────────────────────────────────
+    private static AdminPlanDto MapAdmin(SellerPlan p) => new(
+        p.Id, p.Code, p.Name, p.PricePerMonth, p.FeeDiscountPercent,
+        p.MaxListings, p.BoostsPerMonth, p.Badge, p.Position, p.IsActive);
+
+    public async Task<AdminPlanDto[]> ListAllPlansAsync(CancellationToken ct)
+    {
+        var plans = await _db.SellerPlans.OrderBy(p => p.Position).ToListAsync(ct);
+        return plans.Select(MapAdmin).ToArray();
+    }
+
+    public async Task<AdminPlanDto> CreatePlanAsync(AdminPlanUpsertDto dto, CancellationToken ct)
+    {
+        var code = (dto.Code ?? "").Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(code)) throw new AppException("Mã gói (code) bắt buộc");
+        if (await _db.SellerPlans.AnyAsync(p => p.Code == code, ct))
+            throw new AppException("Mã gói đã tồn tại");
+        var plan = new SellerPlan
+        {
+            Code = code, Name = dto.Name, PricePerMonth = Math.Max(0m, dto.PricePerMonth),
+            FeeDiscountPercent = Math.Clamp(dto.FeeDiscountPercent, 0m, 100m),
+            MaxListings = dto.MaxListings, BoostsPerMonth = Math.Max(0, dto.BoostsPerMonth),
+            Badge = string.IsNullOrWhiteSpace(dto.Badge) ? null : dto.Badge,
+            Position = dto.Position, IsActive = dto.IsActive,
+        };
+        _db.SellerPlans.Add(plan);
+        await _db.SaveChangesAsync(ct);
+        return MapAdmin(plan);
+    }
+
+    public async Task<AdminPlanDto> UpdatePlanAsync(Guid id, AdminPlanUpsertDto dto, CancellationToken ct)
+    {
+        var plan = await _db.SellerPlans.FirstOrDefaultAsync(p => p.Id == id, ct)
+            ?? throw new AppException("Không tìm thấy gói", 404);
+        var code = (dto.Code ?? "").Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(code)) throw new AppException("Mã gói (code) bắt buộc");
+        if (code != plan.Code && await _db.SellerPlans.AnyAsync(p => p.Code == code && p.Id != id, ct))
+            throw new AppException("Mã gói đã tồn tại");
+        plan.Code = code; plan.Name = dto.Name; plan.PricePerMonth = Math.Max(0m, dto.PricePerMonth);
+        plan.FeeDiscountPercent = Math.Clamp(dto.FeeDiscountPercent, 0m, 100m);
+        plan.MaxListings = dto.MaxListings; plan.BoostsPerMonth = Math.Max(0, dto.BoostsPerMonth);
+        plan.Badge = string.IsNullOrWhiteSpace(dto.Badge) ? null : dto.Badge;
+        plan.Position = dto.Position; plan.IsActive = dto.IsActive;
+        await _db.SaveChangesAsync(ct);
+        return MapAdmin(plan);
+    }
+
+    public async Task DeletePlanAsync(Guid id, CancellationToken ct)
+    {
+        var plan = await _db.SellerPlans.FirstOrDefaultAsync(p => p.Id == id, ct)
+            ?? throw new AppException("Không tìm thấy gói", 404);
+        if (plan.Code == "free") throw new AppException("Không thể xóa gói Free (gói mặc định)");
+        _db.SellerPlans.Remove(plan);
+        await _db.SaveChangesAsync(ct);
+    }
 }

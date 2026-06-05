@@ -1,14 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Eye, Loader2, Plus, Trash2, Upload } from "lucide-react";
+import { Eye, Loader2, Plus, Rocket, Trash2, Upload } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { sellerNav } from "@/lib/sellerNav";
 import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
-import type { ApiCategory, ApiSellerProduct } from "@/lib/apiTypes";
+import type { ApiBoostInfo, ApiCategory, ApiSellerProduct } from "@/lib/apiTypes";
 import { formatNumber, formatVND } from "@/lib/format";
 
 const STATUS_TABS: { key: string; label: string }[] = [
@@ -31,6 +31,8 @@ export function SellerProductsClient() {
   const { token, loading: authLoading } = useAuth();
   const [products, setProducts] = useState<ApiSellerProduct[]>([]);
   const [cats, setCats] = useState<ApiCategory[]>([]);
+  const [boost, setBoost] = useState<ApiBoostInfo | null>(null);
+  const [boosting, setBoosting] = useState<string | null>(null);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -54,12 +56,14 @@ export function SellerProductsClient() {
     if (!token) return;
     setLoading(true);
     try {
-      const [list, c] = await Promise.all([
+      const [list, c, bi] = await Promise.all([
         apiFetch<ApiSellerProduct[]>("/api/seller/products", { token }),
         apiFetch<ApiCategory[]>("/api/categories"),
+        apiFetch<ApiBoostInfo>("/api/seller/boost-info", { token }),
       ]);
       setProducts(list);
       setCats(c);
+      setBoost(bi);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -118,6 +122,21 @@ export function SellerProductsClient() {
     }
   };
 
+  const onBoost = async (id: string) => {
+    if (!token) return;
+    setBoosting(id);
+    try {
+      await apiFetch(`/api/seller/products/${id}/boost`, { method: "POST", token });
+      await reload();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setBoosting(null);
+    }
+  };
+
+  const isBoosted = (p: ApiSellerProduct) => !!p.boostedUntil && new Date(p.boostedUntil).getTime() > Date.now();
+
   if (authLoading || loading) {
     return (
       <DashboardLayout variant="seller" groups={sellerNav} title="Sản phẩm" subtitle="Đang tải...">
@@ -168,6 +187,14 @@ export function SellerProductsClient() {
         </Button>
       }
     >
+      {boost && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-bg-card p-4 text-sm">
+          <Rocket className="size-5 text-brand" />
+          <span className="text-text">Lượt boost tháng này: <b className="text-brand">{boost.remaining}/{boost.quota}</b> còn lại</span>
+          <span className="text-text-muted">· mỗi lượt đẩy tin lên đầu danh mục {boost.durationHours}h</span>
+          {boost.quota === 0 && <Link href="/seller/plan" className="ml-auto font-medium text-accent hover:underline">Nâng cấp gói để có lượt boost →</Link>}
+        </div>
+      )}
       {showForm && (
         <form onSubmit={onCreate} className="mb-4 rounded-2xl border border-border bg-bg-card p-5">
           <h3 className="text-sm font-bold text-text">Sản phẩm mới (sẽ ở trạng thái Chờ duyệt)</h3>
@@ -284,6 +311,9 @@ export function SellerProductsClient() {
                             {p.depositStatus === "Forfeited" && <span className="text-danger">Mất cọc {formatVND(p.depositAmount)}</span>}
                           </div>
                         )}
+                        {isBoosted(p) && (
+                          <div className="mt-0.5 text-[11px] text-brand">🚀 Đang Top đến {new Date(p.boostedUntil!).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -304,6 +334,11 @@ export function SellerProductsClient() {
                       <Link href={`/seller/inventory?productId=${p.id}`} title="Kho">
                         <Button variant="outline" size="sm" className="!h-8 !w-8 !px-0"><Upload className="size-3.5" /></Button>
                       </Link>
+                      {p.status === "Active" && !isBoosted(p) && (
+                        <Button variant="outline" size="sm" className="!h-8 !w-8 !px-0 !text-brand" disabled={boosting === p.id || (boost?.remaining ?? 0) <= 0} onClick={() => onBoost(p.id)} title={(boost?.remaining ?? 0) <= 0 ? "Hết lượt boost" : "Boost lên Top"}>
+                          {boosting === p.id ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" className="!h-8 !w-8 !px-0" onClick={() => onDelete(p.id)} title="Xoá">
                         <Trash2 className="size-3.5" />
                       </Button>

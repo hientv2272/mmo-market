@@ -34,6 +34,7 @@ public interface IAppDbContext
     DbSet<PaymentTransaction> PaymentTransactions { get; }
     DbSet<FeeConfig> FeeConfigs { get; }
     DbSet<SellerPlan> SellerPlans { get; }
+    DbSet<BoostLog> BoostLogs { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }
 

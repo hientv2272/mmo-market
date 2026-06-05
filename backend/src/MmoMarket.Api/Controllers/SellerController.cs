@@ -39,6 +39,12 @@ public class SellerController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("boost-info")]
+    public Task<BoostInfoDto> BoostInfo(CancellationToken ct) => _svc.GetBoostInfoAsync(Uid, ct);
+
+    [HttpPost("products/{id:guid}/boost")]
+    public Task<SellerProductDto> Boost(Guid id, CancellationToken ct) => _svc.BoostProductAsync(Uid, id, ct);
+
     [HttpGet("orders")]
     public Task<SellerOrderLineDto[]> Orders([FromQuery] string? status, CancellationToken ct) => _svc.ListMyOrdersAsync(Uid, status, ct);
 

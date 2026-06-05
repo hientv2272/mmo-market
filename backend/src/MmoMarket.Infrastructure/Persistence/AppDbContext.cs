@@ -38,6 +38,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<FeeConfig> FeeConfigs => Set<FeeConfig>();
     public DbSet<SellerPlan> SellerPlans => Set<SellerPlan>();
+    public DbSet<BoostLog> BoostLogs => Set<BoostLog>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -217,6 +218,11 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasIndex(x => x.Code).IsUnique();
             e.Property(x => x.PricePerMonth).HasColumnType("decimal(18,2)");
             e.Property(x => x.FeeDiscountPercent).HasColumnType("decimal(9,4)");
+        });
+
+        b.Entity<BoostLog>(e =>
+        {
+            e.HasIndex(x => new { x.SellerId, x.CreatedAt });
         });
     }
 

@@ -14,9 +14,10 @@ public class AdminController : ControllerBase
     private readonly AdminService _svc;
     private readonly KycService _kyc;
     private readonly DisputeService _disputes;
-    public AdminController(AdminService svc, KycService kyc, DisputeService disputes)
+    private readonly SellerPlanService _plans;
+    public AdminController(AdminService svc, KycService kyc, DisputeService disputes, SellerPlanService plans)
     {
-        _svc = svc; _kyc = kyc; _disputes = disputes;
+        _svc = svc; _kyc = kyc; _disputes = disputes; _plans = plans;
     }
 
     [HttpGet("metrics")]
@@ -24,6 +25,23 @@ public class AdminController : ControllerBase
 
     [HttpGet("finance/reconciliation")]
     public Task<FinanceReconciliationDto> FinanceReconciliation(CancellationToken ct) => _svc.GetFinanceReconciliationAsync(ct);
+
+    // ── Gói thành viên Seller (CRUD) ──────────────────────────────────────────
+    [HttpGet("plans")]
+    public Task<AdminPlanDto[]> Plans(CancellationToken ct) => _plans.ListAllPlansAsync(ct);
+
+    [HttpPost("plans")]
+    public Task<AdminPlanDto> CreatePlan([FromBody] AdminPlanUpsertDto dto, CancellationToken ct) => _plans.CreatePlanAsync(dto, ct);
+
+    [HttpPut("plans/{id:guid}")]
+    public Task<AdminPlanDto> UpdatePlan(Guid id, [FromBody] AdminPlanUpsertDto dto, CancellationToken ct) => _plans.UpdatePlanAsync(id, dto, ct);
+
+    [HttpDelete("plans/{id:guid}")]
+    public async Task<IActionResult> DeletePlan(Guid id, CancellationToken ct)
+    {
+        await _plans.DeletePlanAsync(id, ct);
+        return NoContent();
+    }
 
     [HttpGet("reports")]
     public Task<AdminReportDto> Reports(CancellationToken ct) => _svc.GetReportsAsync(ct);

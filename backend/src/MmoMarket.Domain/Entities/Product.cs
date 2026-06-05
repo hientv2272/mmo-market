@@ -32,6 +32,9 @@ public class Product : Entity
     public decimal DepositAmount { get; set; }
     public ListingDepositStatus DepositStatus { get; set; } = ListingDepositStatus.None;
 
+    // Boost / đẩy tin (đang boost nếu BoostedUntil > now)
+    public DateTime? BoostedUntil { get; set; }
+
     public List<Review> Reviews { get; set; } = new();
     public List<InventoryItem> InventoryItems { get; set; } = new();
 }

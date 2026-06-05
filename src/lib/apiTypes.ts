@@ -203,6 +203,7 @@ export type ApiSellerProduct = {
   inventorySold: number;
   depositAmount: number;
   depositStatus: string; // None | Held | Refunded | Forfeited
+  boostedUntil?: string | null;
 };
 
 export type ApiSellerOrderLine = {
@@ -667,4 +668,24 @@ export type ApiFeeTier = {
   maxPrice?: number | null;
   sellerFeePercent: number;
   note?: string | null;
+};
+
+export type ApiAdminPlan = {
+  id: string;
+  code: string;
+  name: string;
+  pricePerMonth: number;
+  feeDiscountPercent: number;
+  maxListings: number;   // -1 = không giới hạn
+  boostsPerMonth: number;
+  badge?: string | null;
+  position: number;
+  isActive: boolean;
+};
+
+export type ApiBoostInfo = {
+  quota: number;
+  used: number;
+  remaining: number;
+  durationHours: number;
 };

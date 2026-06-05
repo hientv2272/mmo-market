@@ -82,7 +82,9 @@ Escrow-first, KYC + duyệt admin, Dispute + SLA 72h, wallet ledger, 6 cổng th
 - `Product.DepositAmount/DepositStatus` (`ListingDepositStatus`: None/Held/Refunded/Forfeited) + WalletTxnType `Deposit`/`DepositRefund`. Cấu hình `listing_deposit_enabled/percent/min/max` trong `SiteConfig` (mặc định bật, 5%, 10k–500k).
 - `CreateProductAsync`: khóa cọc = clamp(giá × %, min, max) từ ví seller (chặn nếu không đủ số dư). `DeleteProductAsync`: hoàn cọc khi gỡ tin. `OrderService.AutoCancelStaleAsync`: **tịch thu** cọc khi seller trễ bàn giao (P0). Hiển thị trạng thái cọc trên [SellerProductsClient.tsx](../src/app/seller/products/SellerProductsClient.tsx); seed sẵn số dư ví cho seller demo để test.
 
-> *Còn lại của P1 (vòng sau):* admin CRUD cho gói Seller (hiện seed cứng); thực thi số lượt boost/tháng.
+> ✅ *Mục nhỏ đã bổ sung:* **admin CRUD gói Seller** (`/api/admin/plans` + trang [admin/plans](../src/app/admin/plans/)) và **tính năng Boost** (đẩy tin lên top 24h, trừ quota `BoostsPerMonth`/tháng — `BoostLog`, `Product.BoostedUntil`, CatalogService xếp boosted-first + badge "Top", UI seller boost).
+>
+> ⏸️ *Hoãn (cần hạ tầng ngoài):* tách ví vật lý (Buyer/Seller/Escrow/Platform/Reserve), OCR cho KYC (provider FPT.AI/VNPT/Google Vision), object storage thật (MinIO/Azure Blob). Hiện dùng single-ledger + báo cáo đối soát + lưu ảnh data URL.
 
 ### 🟢 P2 — Tối ưu & uy tín
 
