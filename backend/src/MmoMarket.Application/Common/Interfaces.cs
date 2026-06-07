@@ -56,3 +56,22 @@ public interface ICurrentUser
     string? Role { get; }
     bool IsAuthenticated { get; }
 }
+
+/// <summary>Mã hóa/giải mã AES-256 cho dữ liệu nhạy cảm (vd: payload bàn giao).</summary>
+public interface IEncryptionService
+{
+    string Encrypt(string plaintext);
+    string Decrypt(string ciphertext);
+}
+
+/// <summary>Gửi email (SMTP). Triển khai no-op/log khi chưa cấu hình SMTP.</summary>
+public interface IEmailSender
+{
+    Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken ct = default);
+}
+
+/// <summary>Đẩy thông báo realtime tới user (SignalR). No-op nếu user không online.</summary>
+public interface INotificationPusher
+{
+    Task PushAsync(Guid userId, object payload, CancellationToken ct = default);
+}

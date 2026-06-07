@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { apiFetch } from "./api";
+import { HubConnectionBuilder, HubConnectionState, LogLevel } from "@microsoft/signalr";
+import { apiFetch, API_URL } from "./api";
 import { useAuth } from "./AuthContext";
 
 type NotificationCtx = {
@@ -27,6 +28,24 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!authLoading) fetchCount();
   }, [authLoading, fetchCount]);
+
+  // Realtime: nhận thông báo qua SignalR (#7)
+  useEffect(() => {
+    if (!token) return;
+    const conn = new HubConnectionBuilder()
+      .withUrl(`${API_URL}/hubs/notifications`, { accessTokenFactory: () => token })
+      .withAutomaticReconnect()
+      .configureLogging(LogLevel.Warning)
+      .build();
+
+    conn.on("notification", () => setUnreadCount((c) => c + 1));
+    conn.start().catch(() => { /* hub không sẵn sàng → bỏ qua, vẫn dùng polling */ });
+
+    return () => {
+      conn.off("notification");
+      if (conn.state !== HubConnectionState.Disconnected) conn.stop().catch(() => {});
+    };
+  }, [token]);
 
   const markRead = useCallback(async (id: string) => {
     if (!token) return;

@@ -114,15 +114,16 @@ Escrow-first, KYC + duyệt admin, Dispute + SLA 72h, wallet ledger, 6 cổng th
 
 | Hạng mục | Trạng thái dự kiến |
 |---|---|
-| Migration script test trên staging | ⏳ cần kiểm |
-| Escrow engine test edge case (timeout, dispute đồng thời) | 🔴 phụ thuộc P0.1 |
-| Cổng thanh toán test sandbox | 🟡 có tích hợp, cần verify sandbox |
-| Mã hóa thông tin bàn giao verify decrypt | 🟡 `InventoryItem` có payload mã hóa (mock AES) — cần verify thật |
-| Rate limiting API (100 req/min/IP) | ⏳ cần kiểm |
-| Background job timeout chạy đúng | 🔴 phụ thuộc P0.1 |
-| Email notification đủ 8 loại sự kiện | ⏳ cần kiểm |
+| Migration script test trên staging | ⏳ cần kiểm (schema tự nâng cấp qua UpgradeSchemaAsync) |
+| Escrow engine test edge case (timeout, dispute đồng thời) | 🟢 code xong (P0.1 worker) — cần test thực tế |
+| Cổng thanh toán test sandbox | 🟡 có tích hợp + lưu PaymentTransaction, cần verify sandbox |
+| Mã hóa thông tin bàn giao verify decrypt | ✅ AES-256-GCM thật ([AesEncryptionService](../backend/src/MmoMarket.Infrastructure/Security/AesEncryptionService.cs)); cần verify decrypt khi chạy |
+| Rate limiting API (100 req/min/IP) | ✅ built-in RateLimiter (FixedWindow theo IP, [Program.cs](../backend/src/MmoMarket.Api/Program.cs)) |
+| Background job timeout chạy đúng | 🟢 code xong (OrderEscrowWorker) — cần test thực tế |
+| Email notification đủ 8 loại sự kiện | 🟡 hạ tầng SMTP + gửi cho mọi event qua [SmtpEmailSender](../backend/src/MmoMarket.Infrastructure/Email/SmtpEmailSender.cs) (mặc định no-op); cần cấu hình SMTP thật + verify |
+| Real-time notification (SignalR) | ✅ [NotificationHub](../backend/src/MmoMarket.Api/Hubs/NotificationHub.cs) + push trong NotificationService + client trong [NotificationContext](../src/lib/NotificationContext.tsx) |
 | Admin panel duyệt/từ chối/ xử lý tranh chấp | ✅ |
-| Audit log đầy đủ thao tác tài chính | 🔴 phụ thuộc P0.3 |
+| Audit log đầy đủ thao tác tài chính | ✅ (P0.3) |
 | Load test 500 concurrent users | ⏳ cần kiểm |
 | Security scan OWASP Top 10 | ⏳ cần kiểm |
 | Backup & restore procedure | ⏳ cần kiểm |

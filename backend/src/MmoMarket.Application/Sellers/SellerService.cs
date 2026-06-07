@@ -60,8 +60,9 @@ public class SellerService
     private readonly TotpService _totp;
     private readonly SellerPlanService _plans;
     private readonly Wallet.TransactionLimitService _limits;
-    public SellerService(IAppDbContext db, ConfigService config, TotpService totp, SellerPlanService plans, Wallet.TransactionLimitService limits)
-    { _db = db; _config = config; _totp = totp; _plans = plans; _limits = limits; }
+    private readonly IEncryptionService _enc;
+    public SellerService(IAppDbContext db, ConfigService config, TotpService totp, SellerPlanService plans, Wallet.TransactionLimitService limits, IEncryptionService enc)
+    { _db = db; _config = config; _totp = totp; _plans = plans; _limits = limits; _enc = enc; }
 
     private async Task<Seller> GetSellerForUserAsync(Guid userId, CancellationToken ct)
     {
@@ -355,7 +356,7 @@ public class SellerService
             items.Count(i => !i.Reserved && !i.Sold),
             items.Count(i => i.Reserved && !i.Sold),
             items.Count(i => i.Sold),
-            items.Select(i => new InventoryItemDto(i.Id, MaskPreview(i.EncryptedPayload), i.Reserved, i.Sold, i.OrderId, i.CreatedAt)).ToArray());
+            items.Select(i => new InventoryItemDto(i.Id, MaskPreview(SafeDecrypt(i.EncryptedPayload)), i.Reserved, i.Sold, i.OrderId, i.CreatedAt)).ToArray());
     }
 
     public async Task<int> UploadInventoryAsync(Guid userId, Guid productId, string[] items, CancellationToken ct)
@@ -376,8 +377,8 @@ public class SellerService
             _db.InventoryItems.Add(new InventoryItem
             {
                 ProductId = productId,
-                EncryptedPayload = trimmed, // mock — real impl would AES encrypt
-                ContentHash = hash,
+                EncryptedPayload = _enc.Encrypt(trimmed), // AES-256-GCM at rest
+                ContentHash = hash,                        // hash trên plaintext để dedup
                 Reserved = false,
                 Sold = false,
             });
@@ -454,6 +455,12 @@ public class SellerService
 
     public static WithdrawDto MapWithdraw(WithdrawRequest w) => new(
         w.Id, w.Amount, w.Method, w.Account, w.Status.ToString(), w.Note, w.AdminNote, w.CreatedAt, w.ProcessedAt);
+
+    private string SafeDecrypt(string stored)
+    {
+        try { return _enc.Decrypt(stored); }
+        catch { return stored; } // dữ liệu cũ/không giải mã được → giữ nguyên
+    }
 
     private static string MaskPreview(string raw)
     {

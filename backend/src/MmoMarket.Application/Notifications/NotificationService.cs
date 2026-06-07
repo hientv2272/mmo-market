@@ -11,7 +11,10 @@ public record NotificationDto(
 public class NotificationService
 {
     private readonly IAppDbContext _db;
-    public NotificationService(IAppDbContext db) => _db = db;
+    private readonly IEmailSender _email;
+    private readonly INotificationPusher _pusher;
+    public NotificationService(IAppDbContext db, IEmailSender email, INotificationPusher pusher)
+    { _db = db; _email = email; _pusher = pusher; }
 
     public async Task<NotificationDto[]> GetAsync(Guid userId, CancellationToken ct)
     {
@@ -49,15 +52,32 @@ public class NotificationService
         Guid userId, string type, string title, string body,
         string? link, CancellationToken ct)
     {
-        _db.Notifications.Add(new Notification
+        var notif = new Notification
         {
             UserId = userId,
             Type = type,
             Title = title,
             Body = body,
             Link = link,
-        });
+        };
+        _db.Notifications.Add(notif);
         await _db.SaveChangesAsync(ct);
+
+        // Đẩy realtime (best-effort, không làm hỏng luồng chính)
+        try { await _pusher.PushAsync(userId, Map(notif), ct); } catch { /* ignore */ }
+
+        // Gửi email (best-effort; no-op nếu SMTP chưa cấu hình)
+        try
+        {
+            var email = await _db.Users.Where(u => u.Id == userId).Select(u => u.Email).FirstOrDefaultAsync(ct);
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                var html = $"<p>{System.Net.WebUtility.HtmlEncode(body)}</p>"
+                    + (string.IsNullOrEmpty(link) ? "" : $"<p>Xem chi tiết: {System.Net.WebUtility.HtmlEncode(link)}</p>");
+                await _email.SendAsync(email!, title, html, ct);
+            }
+        }
+        catch { /* ignore */ }
     }
 
     private static NotificationDto Map(Notification n) =>

@@ -17,6 +17,8 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
         services.Configure<JwtOptions>(config.GetSection("Jwt"));
         services.AddSingleton<IJwtTokenService, JwtTokenService>();
+        services.AddSingleton<IEncryptionService, Security.AesEncryptionService>();
+        services.AddSingleton<IEmailSender, Email.SmtpEmailSender>();
         return services;
     }
 }
