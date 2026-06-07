@@ -56,6 +56,25 @@ export function SellerPlanClient() {
     }
   }
 
+  const [buyingBadge, setBuyingBadge] = useState(false);
+  async function buyBadge() {
+    if (!token) return;
+    setBuyingBadge(true);
+    setError(null);
+    try {
+      await apiFetch<ApiCurrentPlan>("/api/seller/trust-badge", { token, method: "POST" });
+      setToast("Đã mua badge Uy tín");
+      setTimeout(() => setToast(null), 2500);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Mua badge thất bại");
+    } finally {
+      setBuyingBadge(false);
+    }
+  }
+
+  const badgeActive = !!current?.trustBadgeUntil && new Date(current.trustBadgeUntil).getTime() > Date.now();
+
   return (
     <DashboardLayout variant="seller" groups={sellerNav} title="Gói thành viên Seller" subtitle="Giảm phí giao dịch, tăng hạn mức tin đăng và quyền lợi hiển thị">
       {loading ? (
@@ -81,6 +100,27 @@ export function SellerPlanClient() {
               </div>
             </div>
           )}
+
+          {/* Badge Uy tín (§3.4) */}
+          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-bg-card p-5">
+            <Sparkles className="size-6 text-accent" />
+            <div className="flex-1">
+              <p className="text-sm font-bold text-text">Badge &ldquo;Uy tín&rdquo;</p>
+              <p className="text-xs text-text-muted">
+                {badgeActive
+                  ? `Đang hiệu lực đến ${new Date(current!.trustBadgeUntil!).toLocaleDateString("vi-VN")}`
+                  : "200.000đ/năm · điều kiện: ≥50 đánh giá và rating ≥4.5★"}
+              </p>
+            </div>
+            {badgeActive ? (
+              <Badge tone="success">Đã kích hoạt</Badge>
+            ) : (
+              <Button size="sm" variant="soft" disabled={buyingBadge} onClick={buyBadge}
+                leftIcon={buyingBadge ? <Loader2 className="size-3.5 animate-spin" /> : undefined}>
+                {buyingBadge ? "Đang xử lý..." : "Mua badge Uy tín"}
+              </Button>
+            )}
+          </div>
 
           {error && <div className="mb-4 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</div>}
 

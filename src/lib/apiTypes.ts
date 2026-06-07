@@ -621,6 +621,10 @@ export type ApiBanner = {
   position: number;
   isActive: boolean;
   clickCount: number;
+  viewCount: number;
+  costModel: string;   // none | cpm | cpc
+  rate: number;
+  estimatedCost: number;
   startsAt?: string | null;
   endsAt?: string | null;
   createdAt: string;
@@ -659,6 +663,7 @@ export type ApiCurrentPlan = {
   badge?: string | null;
   expiresAt?: string | null;
   active: boolean;
+  trustBadgeUntil?: string | null;
 };
 
 export type ApiFeeTier = {
@@ -688,4 +693,5 @@ export type ApiBoostInfo = {
   used: number;
   remaining: number;
   durationHours: number;
+  paidPrice: number;
 };

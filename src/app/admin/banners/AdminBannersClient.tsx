@@ -8,6 +8,7 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { adminNav } from "@/lib/adminNav";
 import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
+import { formatVND } from "@/lib/format";
 import type { ApiBanner, ApiFlashSale } from "@/lib/apiTypes";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -53,10 +54,12 @@ type BannerForm = {
   title: string; subtitle: string; linkUrl: string;
   bgColor: string; textColor: string; position: number;
   isActive: boolean; startsAt: string; endsAt: string;
+  costModel: string; rate: number;
 };
 const defaultBannerForm = (): BannerForm => ({
   title: "", subtitle: "", linkUrl: "", bgColor: "#7c3aed",
   textColor: "#ffffff", position: 1, isActive: true, startsAt: "", endsAt: "",
+  costModel: "none", rate: 0,
 });
 
 function BannerModal({
@@ -148,6 +151,21 @@ function BannerModal({
             <label className="text-xs text-text-muted">Kết thúc (tuỳ chọn)</label>
             <input type="datetime-local" value={form.endsAt} onChange={e => set("endsAt", e.target.value)}
               className="mt-1 w-full rounded-lg border border-border bg-bg-elev px-3 py-2 text-sm text-text outline-none focus:border-brand" />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted">Mô hình tính phí (quảng cáo)</label>
+            <select value={form.costModel} onChange={e => set("costModel", e.target.value)}
+              className="mt-1 w-full rounded-lg border border-border bg-bg-elev px-3 py-2 text-sm text-text outline-none focus:border-brand">
+              <option value="none">Không tính phí</option>
+              <option value="cpm">CPM (giá / 1000 lượt hiển thị)</option>
+              <option value="cpc">CPC (giá / lượt click)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-text-muted">Đơn giá (₫)</label>
+            <input type="number" min={0} value={form.rate} onChange={e => set("rate", parseFloat(e.target.value) || 0)}
+              disabled={form.costModel === "none"}
+              className="mt-1 w-full rounded-lg border border-border bg-bg-elev px-3 py-2 text-sm text-text outline-none focus:border-brand disabled:opacity-50" />
           </div>
         </div>
 
@@ -309,6 +327,7 @@ export function AdminBannersClient() {
       isActive: data.isActive,
       startsAt: data.startsAt ? new Date(data.startsAt).toISOString() : null,
       endsAt: data.endsAt ? new Date(data.endsAt).toISOString() : null,
+      costModel: data.costModel, rate: data.rate,
     };
     if (data.id) {
       const updated = await apiFetch<ApiBanner>(`/api/admin/banners/${data.id}`, { token, method: "PUT", body: JSON.stringify(body) });
@@ -356,6 +375,7 @@ export function AdminBannersClient() {
       linkUrl: b.linkUrl ?? "", bgColor: b.bgColor, textColor: b.textColor,
       position: b.position, isActive: b.isActive,
       startsAt: toLocalInput(b.startsAt), endsAt: toLocalInput(b.endsAt),
+      costModel: b.costModel ?? "none", rate: b.rate ?? 0,
     });
   }
 
@@ -450,7 +470,12 @@ export function AdminBannersClient() {
                       {b.startsAt ? fmtDate(b.startsAt) : "∞"} → {b.endsAt ? fmtDate(b.endsAt) : "∞"}
                     </p>
                   )}
-                  <p className="text-xs text-text-dim">{b.clickCount.toLocaleString("vi")} lượt click</p>
+                  <p className="text-xs text-text-dim">
+                    {b.viewCount.toLocaleString("vi")} hiển thị · {b.clickCount.toLocaleString("vi")} click
+                    {b.costModel !== "none" && (
+                      <> · {b.costModel.toUpperCase()} {formatVND(b.rate)} → <span className="font-semibold text-text">{formatVND(b.estimatedCost)}</span></>
+                    )}
+                  </p>
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 pt-1">

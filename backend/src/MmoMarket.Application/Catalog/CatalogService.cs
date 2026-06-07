@@ -93,7 +93,8 @@ public class CatalogService
 
     public static SellerSummaryDto MapSeller(Seller s) => new(
         s.Id, s.Username, s.DisplayName, s.AvatarColor, s.Rating, s.ReviewCount,
-        s.TotalSold, s.Badge, s.User?.KycStatus.ToString() ?? "None", s.TrustScore);
+        s.TotalSold, s.Badge, s.User?.KycStatus.ToString() ?? "None", s.TrustScore,
+        s.TrustBadgeUntil.HasValue && s.TrustBadgeUntil.Value > DateTime.UtcNow);
 
     public static string[] DeserializeArr(string json)
     {

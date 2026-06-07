@@ -9,7 +9,7 @@ public record SellerPlanDto(string Code, string Name, decimal PricePerMonth, dec
     int MaxListings, int BoostsPerMonth, string? Badge, int Position, bool IsActive);
 
 public record CurrentPlanDto(string Code, string Name, decimal FeeDiscountPercent, int MaxListings,
-    int BoostsPerMonth, string? Badge, DateTime? ExpiresAt, bool Active);
+    int BoostsPerMonth, string? Badge, DateTime? ExpiresAt, bool Active, DateTime? TrustBadgeUntil);
 
 public record AdminPlanUpsertDto(string Code, string Name, decimal PricePerMonth, decimal FeeDiscountPercent,
     int MaxListings, int BoostsPerMonth, string? Badge, int Position, bool IsActive);
@@ -52,7 +52,7 @@ public class SellerPlanService
         var effective = await ResolvePlanAsync(seller, ct);
         var active = seller.PlanCode != "free" && seller.PlanExpiresAt.HasValue && seller.PlanExpiresAt.Value > DateTime.UtcNow;
         return new CurrentPlanDto(effective.Code, effective.Name, effective.FeeDiscountPercent,
-            effective.MaxListings, effective.BoostsPerMonth, effective.Badge, seller.PlanExpiresAt, active);
+            effective.MaxListings, effective.BoostsPerMonth, effective.Badge, seller.PlanExpiresAt, active, seller.TrustBadgeUntil);
     }
 
     public async Task<CurrentPlanDto> SubscribeAsync(Guid userId, string planCode, CancellationToken ct)

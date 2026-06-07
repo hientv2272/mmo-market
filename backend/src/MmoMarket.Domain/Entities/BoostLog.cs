@@ -10,4 +10,5 @@ public class BoostLog : Entity
 {
     public Guid SellerId { get; set; }
     public Guid ProductId { get; set; }
+    public bool Paid { get; set; } // true = boost trả phí (không tính vào quota gói); false = dùng quota
 }

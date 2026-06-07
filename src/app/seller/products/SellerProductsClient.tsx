@@ -123,10 +123,15 @@ export function SellerProductsClient() {
   };
 
   const onBoost = async (id: string) => {
-    if (!token) return;
+    if (!token || !boost) return;
+    let pay = false;
+    if (boost.remaining <= 0) {
+      if (!confirm(`Hết lượt boost miễn phí tháng này. Boost trả phí ${formatVND(boost.paidPrice)} từ ví?`)) return;
+      pay = true;
+    }
     setBoosting(id);
     try {
-      await apiFetch(`/api/seller/products/${id}/boost`, { method: "POST", token });
+      await apiFetch(`/api/seller/products/${id}/boost${pay ? "?pay=true" : ""}`, { method: "POST", token });
       await reload();
     } catch (e) {
       alert((e as Error).message);
@@ -191,8 +196,8 @@ export function SellerProductsClient() {
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-bg-card p-4 text-sm">
           <Rocket className="size-5 text-brand" />
           <span className="text-text">Lượt boost tháng này: <b className="text-brand">{boost.remaining}/{boost.quota}</b> còn lại</span>
-          <span className="text-text-muted">· mỗi lượt đẩy tin lên đầu danh mục {boost.durationHours}h</span>
-          {boost.quota === 0 && <Link href="/seller/plan" className="ml-auto font-medium text-accent hover:underline">Nâng cấp gói để có lượt boost →</Link>}
+          <span className="text-text-muted">· đẩy tin lên đầu danh mục {boost.durationHours}h · hết lượt: trả phí <b className="text-text">{formatVND(boost.paidPrice)}</b>/lần</span>
+          {boost.quota === 0 && <Link href="/seller/plan" className="ml-auto font-medium text-accent hover:underline">Nâng cấp gói để có lượt boost miễn phí →</Link>}
         </div>
       )}
       {showForm && (
@@ -335,7 +340,7 @@ export function SellerProductsClient() {
                         <Button variant="outline" size="sm" className="!h-8 !w-8 !px-0"><Upload className="size-3.5" /></Button>
                       </Link>
                       {p.status === "Active" && !isBoosted(p) && (
-                        <Button variant="outline" size="sm" className="!h-8 !w-8 !px-0 !text-brand" disabled={boosting === p.id || (boost?.remaining ?? 0) <= 0} onClick={() => onBoost(p.id)} title={(boost?.remaining ?? 0) <= 0 ? "Hết lượt boost" : "Boost lên Top"}>
+                        <Button variant="outline" size="sm" className="!h-8 !w-8 !px-0 !text-brand" disabled={boosting === p.id} onClick={() => onBoost(p.id)} title={(boost?.remaining ?? 0) <= 0 ? `Boost trả phí ${formatVND(boost?.paidPrice ?? 0)}` : "Boost lên Top (miễn phí)"}>
                           {boosting === p.id ? <Loader2 className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
                         </Button>
                       )}

@@ -16,7 +16,7 @@ public record SellerProductDto(
     int InventoryAvailable, int InventoryReserved, int InventorySold,
     decimal DepositAmount, string DepositStatus, DateTime? BoostedUntil);
 
-public record BoostInfoDto(int Quota, int Used, int Remaining, int DurationHours);
+public record BoostInfoDto(int Quota, int Used, int Remaining, int DurationHours, decimal PaidPrice);
 
 public record SellerProductCreateDto(
     string Title, string CategorySlug, decimal Price, decimal? ComparePrice, string Delivery,
@@ -264,7 +264,7 @@ public class SellerService
     }
 
     // ── Boost / đẩy tin ───────────────────────────────────────────────────────
-    public async Task<SellerProductDto> BoostProductAsync(Guid userId, Guid productId, CancellationToken ct)
+    public async Task<SellerProductDto> BoostProductAsync(Guid userId, Guid productId, bool payWithWallet, CancellationToken ct)
     {
         var seller = await GetSellerForUserAsync(userId, ct);
         var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == productId && p.SellerId == seller.Id, ct)
@@ -277,19 +277,34 @@ public class SellerService
             throw new AppException($"Sản phẩm đang được boost (đến {product.BoostedUntil.Value:HH:mm dd/MM})");
 
         var plan = await _plans.ResolvePlanAsync(seller, ct);
-        if (plan.BoostsPerMonth <= 0)
-            throw new AppException("Gói hiện tại không có lượt boost. Vui lòng nâng cấp gói.");
-
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var used = await _db.BoostLogs.CountAsync(b => b.SellerId == seller.Id && b.CreatedAt >= monthStart, ct);
-        if (used >= plan.BoostsPerMonth)
-            throw new AppException($"Đã hết lượt boost tháng này ({used}/{plan.BoostsPerMonth}). Nâng cấp gói để có thêm.");
+        // chỉ đếm lượt boost MIỄN PHÍ (Paid=false) cho quota gói
+        var usedFree = await _db.BoostLogs.CountAsync(b => b.SellerId == seller.Id && b.CreatedAt >= monthStart && !b.Paid, ct);
+        var free = usedFree < plan.BoostsPerMonth;
+
+        var price = await _config.GetDecimalAsync(ConfigKeys.BoostPaidPrice, 20000m, ct);
+        if (!free)
+        {
+            // Hết quota → boost trả phí (cần xác nhận)
+            if (!payWithWallet)
+                throw new AppException($"Hết lượt boost miễn phí tháng này. Boost trả phí {price:N0}đ — xác nhận để tiếp tục.");
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+                ?? throw new AppException("User không tồn tại", 404);
+            if (user.WalletBalance < price)
+                throw new AppException($"Số dư ví không đủ để boost trả phí ({price:N0}đ).");
+            user.WalletBalance -= price;
+            _db.WalletTxns.Add(new WalletTxn
+            {
+                UserId = userId, Type = WalletTxnType.Purchase, Amount = -price,
+                Status = WalletTxnStatus.Completed, Note = $"Phí đẩy tin: {product.Title}",
+            });
+        }
 
         var hours = await _config.GetIntAsync(ConfigKeys.BoostDurationHours, 24, ct);
         product.BoostedUntil = now.AddHours(hours);
-        _db.BoostLogs.Add(new BoostLog { SellerId = seller.Id, ProductId = product.Id });
-        AddAudit(userId, "Seller", "product_boost", "Product", product.Slug, null,
-            $"Boost sản phẩm {product.Title} trong {hours}h");
+        _db.BoostLogs.Add(new BoostLog { SellerId = seller.Id, ProductId = product.Id, Paid = !free });
+        AddAudit(userId, "Seller", "product_boost", "Product", product.Slug, free ? null : price,
+            $"Boost {(free ? "miễn phí" : "trả phí")} sản phẩm {product.Title} trong {hours}h");
         await _db.SaveChangesAsync(ct);
         var inv = await _db.InventoryItems.Where(i => i.ProductId == product.Id).ToListAsync(ct);
         return MapProduct(product, inv);
@@ -301,9 +316,40 @@ public class SellerService
         var plan = await _plans.ResolvePlanAsync(seller, ct);
         var now = DateTime.UtcNow;
         var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var used = await _db.BoostLogs.CountAsync(b => b.SellerId == seller.Id && b.CreatedAt >= monthStart, ct);
+        var usedFree = await _db.BoostLogs.CountAsync(b => b.SellerId == seller.Id && b.CreatedAt >= monthStart && !b.Paid, ct);
         var hours = await _config.GetIntAsync(ConfigKeys.BoostDurationHours, 24, ct);
-        return new BoostInfoDto(plan.BoostsPerMonth, used, Math.Max(0, plan.BoostsPerMonth - used), hours);
+        var price = await _config.GetDecimalAsync(ConfigKeys.BoostPaidPrice, 20000m, ct);
+        return new BoostInfoDto(plan.BoostsPerMonth, usedFree, Math.Max(0, plan.BoostsPerMonth - usedFree), hours, price);
+    }
+
+    // ── Badge Uy tín (§3.4) ─────────────────────────────────────────────────────
+    public async Task<CurrentPlanDto> BuyTrustBadgeAsync(Guid userId, CancellationToken ct)
+    {
+        var seller = await GetSellerForUserAsync(userId, ct);
+        var minReviews = await _config.GetIntAsync(ConfigKeys.TrustBadgeMinReviews, 50, ct);
+        var minRating = (double)await _config.GetDecimalAsync(ConfigKeys.TrustBadgeMinRating, 4.5m, ct);
+        if (seller.ReviewCount < minReviews || seller.Rating < minRating)
+            throw new AppException($"Cần ≥{minReviews} đánh giá và rating ≥{minRating:0.0}★ để mua badge Uy tín (hiện {seller.ReviewCount} đánh giá, {seller.Rating:0.0}★).");
+
+        var price = await _config.GetDecimalAsync(ConfigKeys.TrustBadgePrice, 200000m, ct);
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
+            ?? throw new AppException("User không tồn tại", 404);
+        if (user.WalletBalance < price)
+            throw new AppException($"Số dư ví không đủ để mua badge Uy tín ({price:N0}đ).");
+
+        user.WalletBalance -= price;
+        _db.WalletTxns.Add(new WalletTxn
+        {
+            UserId = userId, Type = WalletTxnType.Purchase, Amount = -price,
+            Status = WalletTxnStatus.Completed, Note = "Mua badge Uy tín (1 năm)",
+        });
+        var now = DateTime.UtcNow;
+        var baseDate = seller.TrustBadgeUntil.HasValue && seller.TrustBadgeUntil.Value > now ? seller.TrustBadgeUntil.Value : now;
+        seller.TrustBadgeUntil = baseDate.AddYears(1);
+        AddAudit(userId, "Seller", "trust_badge_buy", "Seller", seller.Id.ToString(), price,
+            $"Mua badge Uy tín đến {seller.TrustBadgeUntil:yyyy-MM-dd}");
+        await _db.SaveChangesAsync(ct);
+        return await _plans.GetMyPlanAsync(userId, ct);
     }
 
     public async Task<SellerOrderLineDto[]> ListMyOrdersAsync(Guid userId, string? status, CancellationToken ct)

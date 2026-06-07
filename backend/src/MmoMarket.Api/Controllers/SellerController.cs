@@ -43,7 +43,10 @@ public class SellerController : ControllerBase
     public Task<BoostInfoDto> BoostInfo(CancellationToken ct) => _svc.GetBoostInfoAsync(Uid, ct);
 
     [HttpPost("products/{id:guid}/boost")]
-    public Task<SellerProductDto> Boost(Guid id, CancellationToken ct) => _svc.BoostProductAsync(Uid, id, ct);
+    public Task<SellerProductDto> Boost(Guid id, [FromQuery] bool pay, CancellationToken ct) => _svc.BoostProductAsync(Uid, id, pay, ct);
+
+    [HttpPost("trust-badge")]
+    public Task<CurrentPlanDto> BuyTrustBadge(CancellationToken ct) => _svc.BuyTrustBadgeAsync(Uid, ct);
 
     [HttpGet("orders")]
     public Task<SellerOrderLineDto[]> Orders([FromQuery] string? status, CancellationToken ct) => _svc.ListMyOrdersAsync(Uid, status, ct);

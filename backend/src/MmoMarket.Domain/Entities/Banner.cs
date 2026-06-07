@@ -11,6 +11,9 @@ public class Banner
     public int Position { get; set; }
     public bool IsActive { get; set; } = true;
     public int ClickCount { get; set; }
+    public int ViewCount { get; set; }                 // impressions (cho CPM)
+    public string CostModel { get; set; } = "none";    // none | cpm | cpc (§3.4)
+    public decimal Rate { get; set; }                  // CPM: giá/1000 view; CPC: giá/click
     public DateTime? StartsAt { get; set; }
     public DateTime? EndsAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

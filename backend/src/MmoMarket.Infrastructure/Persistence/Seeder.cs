@@ -449,6 +449,12 @@ public static class Seeder
         await AddColumnIfMissingAsync(db, "KycSubmissions", "FrontImage", "TEXT NULL", ct);
         await AddColumnIfMissingAsync(db, "KycSubmissions", "BackImage", "TEXT NULL", ct);
         await AddColumnIfMissingAsync(db, "Products", "BoostedUntil", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Users", "AffiliateRewarded", "INTEGER NOT NULL DEFAULT 0", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "TrustBadgeUntil", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "BoostLogs", "Paid", "INTEGER NOT NULL DEFAULT 0", ct);
+        await AddColumnIfMissingAsync(db, "Banners", "ViewCount", "INTEGER NOT NULL DEFAULT 0", ct);
+        await AddColumnIfMissingAsync(db, "Banners", "CostModel", "TEXT NOT NULL DEFAULT 'none'", ct);
+        await AddColumnIfMissingAsync(db, "Banners", "Rate", "TEXT NOT NULL DEFAULT '0'", ct);
     }
 
     /// <summary>Thêm cột vào bảng nếu chưa tồn tại (idempotent cho SQLite).</summary>
@@ -506,6 +512,11 @@ public static class Seeder
             ["listing_deposit_min"]       = "10000",
             ["listing_deposit_max"]       = "500000",
             ["boost_duration_hours"]      = "24",
+            ["boost_paid_price"]          = "20000",
+            ["affiliate_percent"]         = "30",
+            ["trust_badge_price"]         = "200000",
+            ["trust_badge_min_reviews"]   = "50",
+            ["trust_badge_min_rating"]    = "4.5",
             // Trust Score (P2.1, §8)
             ["trust_start"]               = "80",
             ["trust_complete_5star"]      = "2",

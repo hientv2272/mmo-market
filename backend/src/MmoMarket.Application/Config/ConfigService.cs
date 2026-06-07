@@ -49,6 +49,11 @@ public static class ConfigKeys
     public const string ListingDepositMin     = "listing_deposit_min";
     public const string ListingDepositMax     = "listing_deposit_max";
     public const string BoostDurationHours    = "boost_duration_hours";
+    public const string BoostPaidPrice        = "boost_paid_price";        // phí boost khi hết quota (§3.4)
+    public const string AffiliatePercent      = "affiliate_percent";       // % phí giao dịch trả hoa hồng giới thiệu
+    public const string TrustBadgePrice       = "trust_badge_price";       // phí badge Uy tín/năm
+    public const string TrustBadgeMinReviews  = "trust_badge_min_reviews";
+    public const string TrustBadgeMinRating   = "trust_badge_min_rating";
     // Trust Score (P2.1, §8) — delta điểm uy tín
     public const string TrustStart           = "trust_start";
     public const string TrustComplete5Star   = "trust_complete_5star";

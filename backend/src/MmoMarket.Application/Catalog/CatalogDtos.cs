@@ -2,7 +2,7 @@ namespace MmoMarket.Application.Catalog;
 
 public record CategoryDto(string Slug, string Name, string Short, string IconKey, string Description, string Color, int ProductCount);
 
-public record SellerSummaryDto(Guid Id, string Username, string DisplayName, string AvatarColor, double Rating, int ReviewCount, int TotalSold, string? Badge, string KycStatus, int TrustScore);
+public record SellerSummaryDto(Guid Id, string Username, string DisplayName, string AvatarColor, double Rating, int ReviewCount, int TotalSold, string? Badge, string KycStatus, int TrustScore, bool TrustBadge);
 
 public record ProductListItemDto(
     Guid Id,

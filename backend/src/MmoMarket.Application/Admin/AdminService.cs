@@ -69,9 +69,9 @@ public record LoyaltyRewardDto(Guid Id, string Title, string Description, int Po
 public record CreateLoyaltyRewardDto(string Title, string Description, int PointsCost, string Type, decimal VoucherAmount, bool IsComingSoon, int Position);
 public record UpdateLoyaltyRewardDto(string Title, string Description, int PointsCost, string Type, decimal VoucherAmount, bool IsActive, bool IsComingSoon, int Position);
 
-public record BannerDto(Guid Id, string Title, string Subtitle, string? LinkUrl, string BgColor, string TextColor, int Position, bool IsActive, int ClickCount, DateTime? StartsAt, DateTime? EndsAt, DateTime CreatedAt);
-public record CreateBannerDto(string Title, string Subtitle, string? LinkUrl, string BgColor, string TextColor, int Position, DateTime? StartsAt, DateTime? EndsAt);
-public record UpdateBannerDto(string Title, string Subtitle, string? LinkUrl, string BgColor, string TextColor, int Position, bool IsActive, DateTime? StartsAt, DateTime? EndsAt);
+public record BannerDto(Guid Id, string Title, string Subtitle, string? LinkUrl, string BgColor, string TextColor, int Position, bool IsActive, int ClickCount, int ViewCount, string CostModel, decimal Rate, decimal EstimatedCost, DateTime? StartsAt, DateTime? EndsAt, DateTime CreatedAt);
+public record CreateBannerDto(string Title, string Subtitle, string? LinkUrl, string BgColor, string TextColor, int Position, DateTime? StartsAt, DateTime? EndsAt, string? CostModel = null, decimal Rate = 0);
+public record UpdateBannerDto(string Title, string Subtitle, string? LinkUrl, string BgColor, string TextColor, int Position, bool IsActive, DateTime? StartsAt, DateTime? EndsAt, string? CostModel = null, decimal Rate = 0);
 
 public record FlashSaleDto(Guid Id, string Title, int DiscountPercent, DateTime StartsAt, DateTime EndsAt, string Status, int ProductCount, DateTime CreatedAt);
 public record CreateFlashSaleDto(string Title, int DiscountPercent, DateTime StartsAt, DateTime EndsAt);
@@ -477,6 +477,7 @@ public class AdminService
             Title = dto.Title, Subtitle = dto.Subtitle, LinkUrl = dto.LinkUrl,
             BgColor = dto.BgColor, TextColor = dto.TextColor,
             Position = dto.Position, StartsAt = dto.StartsAt, EndsAt = dto.EndsAt,
+            CostModel = NormalizeCostModel(dto.CostModel), Rate = Math.Max(0m, dto.Rate),
         };
         _db.Banners.Add(banner);
         await _db.SaveChangesAsync(ct);
@@ -491,9 +492,32 @@ public class AdminService
         banner.BgColor = dto.BgColor; banner.TextColor = dto.TextColor;
         banner.Position = dto.Position; banner.IsActive = dto.IsActive;
         banner.StartsAt = dto.StartsAt; banner.EndsAt = dto.EndsAt;
+        banner.CostModel = NormalizeCostModel(dto.CostModel); banner.Rate = Math.Max(0m, dto.Rate);
         banner.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
         return MapBanner(banner);
+    }
+
+    public async Task IncrementBannerViewAsync(Guid id, CancellationToken ct)
+    {
+        var banner = await _db.Banners.FirstOrDefaultAsync(b => b.Id == id, ct);
+        if (banner == null) return;
+        banner.ViewCount++;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task IncrementBannerClickAsync(Guid id, CancellationToken ct)
+    {
+        var banner = await _db.Banners.FirstOrDefaultAsync(b => b.Id == id, ct);
+        if (banner == null) return;
+        banner.ClickCount++;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private static string NormalizeCostModel(string? m)
+    {
+        m = (m ?? "none").Trim().ToLowerInvariant();
+        return m is "cpm" or "cpc" ? m : "none";
     }
 
     public async Task DeleteBannerAsync(Guid id, CancellationToken ct)
@@ -514,8 +538,17 @@ public class AdminService
         return MapBanner(banner);
     }
 
-    private static BannerDto MapBanner(Banner b) =>
-        new(b.Id, b.Title, b.Subtitle, b.LinkUrl, b.BgColor, b.TextColor, b.Position, b.IsActive, b.ClickCount, b.StartsAt, b.EndsAt, b.CreatedAt);
+    private static BannerDto MapBanner(Banner b)
+    {
+        var estCost = b.CostModel switch
+        {
+            "cpm" => Math.Round(b.ViewCount / 1000m * b.Rate, 0, MidpointRounding.AwayFromZero),
+            "cpc" => b.ClickCount * b.Rate,
+            _ => 0m,
+        };
+        return new(b.Id, b.Title, b.Subtitle, b.LinkUrl, b.BgColor, b.TextColor, b.Position, b.IsActive,
+            b.ClickCount, b.ViewCount, b.CostModel, b.Rate, estCost, b.StartsAt, b.EndsAt, b.CreatedAt);
+    }
 
     // ── Flash Sales ───────────────────────────────────────────────────────────
     public async Task<FlashSaleDto[]> ListFlashSalesAsync(CancellationToken ct)

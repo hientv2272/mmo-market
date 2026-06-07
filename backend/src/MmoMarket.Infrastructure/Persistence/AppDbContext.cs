@@ -178,6 +178,7 @@ public class AppDbContext : DbContext, IAppDbContext
         b.Entity<Banner>(e =>
         {
             e.HasIndex(x => x.Position);
+            e.Property(x => x.Rate).HasColumnType("decimal(18,2)");
         });
 
         b.Entity<SiteConfig>(e =>

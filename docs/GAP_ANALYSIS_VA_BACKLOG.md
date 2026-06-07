@@ -84,6 +84,10 @@ Escrow-first, KYC + duyệt admin, Dispute + SLA 72h, wallet ledger, 6 cổng th
 
 > ✅ *Mục nhỏ đã bổ sung:* **admin CRUD gói Seller** (`/api/admin/plans` + trang [admin/plans](../src/app/admin/plans/)) và **tính năng Boost** (đẩy tin lên top 24h, trừ quota `BoostsPerMonth`/tháng — `BoostLog`, `Product.BoostedUntil`, CatalogService xếp boosted-first + badge "Top", UI seller boost).
 >
+> ✅ *Production hardening:* email SMTP ([SmtpEmailSender](../backend/src/MmoMarket.Infrastructure/Email/SmtpEmailSender.cs)), rate limiting 100/phút/IP, mã hóa AES-256-GCM thật ([AesEncryptionService](../backend/src/MmoMarket.Infrastructure/Security/AesEncryptionService.cs)), realtime SignalR ([NotificationHub](../backend/src/MmoMarket.Api/Hubs/NotificationHub.cs) + client).
+>
+> ✅ *Monetization phụ (§3.4/§6.4):* **Boost trả phí** khi hết quota (config `boost_paid_price`, trừ ví); **Affiliate** hoa hồng 30% phí giao dịch lần đầu cho người giới thiệu (`User.AffiliateRewarded`, hook khi hoàn tất đơn); **Badge Uy tín** mua 200k/năm (≥50 đánh giá & ≥4.5★, `Seller.TrustBadgeUntil`); **Banner CPM/CPC** (Banner.ViewCount/CostModel/Rate + endpoint view/click + báo cáo chi phí ước tính trong admin — public banner hiện vẫn mock, cần phục vụ banner thật để đếm impression).
+>
 > ⏸️ *Hoãn (cần hạ tầng ngoài):* tách ví vật lý (Buyer/Seller/Escrow/Platform/Reserve), OCR cho KYC (provider FPT.AI/VNPT/Google Vision), object storage thật (MinIO/Azure Blob). Hiện dùng single-ledger + báo cáo đối soát + lưu ảnh data URL.
 
 ### 🟢 P2 — Tối ưu & uy tín

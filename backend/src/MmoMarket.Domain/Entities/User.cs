@@ -20,6 +20,7 @@ public class User : Entity
     public string? TotpSecret { get; set; }
     public string? ReferralCode { get; set; }
     public Guid? ReferredByUserId { get; set; }
+    public bool AffiliateRewarded { get; set; } // đã trả hoa hồng giới thiệu (lần giao dịch đầu) chưa
 
     public Seller? Seller { get; set; }
     public List<Order> Orders { get; set; } = new();

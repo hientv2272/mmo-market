@@ -259,6 +259,7 @@ public class OrderService
         AddAudit(userId, "Buyer", "buyer_confirm_received", "Order", order.Code, order.Total,
             $"Buyer xác nhận nhận hàng, giải ngân đơn {order.Code}");
         await _trust.OnOrderCompletedSellersAsync(order.Lines.Select(l => l.SellerId), ct);
+        await RewardAffiliateAsync(order, ct);
         await _db.SaveChangesAsync(ct);
         return Map(order);
     }
@@ -281,6 +282,7 @@ public class OrderService
             AddAudit(null, "System", "escrow_auto_release", "Order", order.Code, order.Total,
                 $"Tự động giải ngân đơn {order.Code} sau khi hết hạn kiểm tra");
             await _trust.OnOrderCompletedSellersAsync(order.Lines.Select(l => l.SellerId), ct);
+            await RewardAffiliateAsync(order, ct);
         }
         await _db.SaveChangesAsync(ct);
         return due.Count;
@@ -345,6 +347,27 @@ public class OrderService
     {
         var hours = await _config.GetIntAsync(ConfigKeys.DeliverWindowHours, 2, ct); // mặc định T+2h
         return DateTime.UtcNow.AddHours(hours);
+    }
+
+    /// <summary>Trả hoa hồng giới thiệu (affiliate) cho người giới thiệu khi buyer hoàn tất giao dịch ĐẦU TIÊN (§3.4).</summary>
+    private async Task RewardAffiliateAsync(Order order, CancellationToken ct)
+    {
+        var buyer = await _db.Users.FirstOrDefaultAsync(u => u.Id == order.BuyerId, ct);
+        if (buyer == null || buyer.ReferredByUserId == null || buyer.AffiliateRewarded) return;
+        buyer.AffiliateRewarded = true; // chỉ thưởng 1 lần (kể cả khi hoa hồng = 0)
+        var pct = await _config.GetDecimalAsync(ConfigKeys.AffiliatePercent, 30m, ct);
+        var commission = Math.Round(order.Fee * pct / 100m, 0, MidpointRounding.AwayFromZero);
+        if (commission <= 0) return;
+        var referrer = await _db.Users.FirstOrDefaultAsync(u => u.Id == buyer.ReferredByUserId, ct);
+        if (referrer == null) return;
+        referrer.WalletBalance += commission;
+        _db.WalletTxns.Add(new WalletTxn
+        {
+            UserId = referrer.Id, Type = WalletTxnType.Commission, Amount = commission,
+            Status = WalletTxnStatus.Completed, Note = $"Hoa hồng giới thiệu {buyer.Username} (đơn {order.Code})", OrderId = order.Id,
+        });
+        AddAudit(null, "System", "affiliate_commission", "User", referrer.Id.ToString(), commission,
+            $"Hoa hồng giới thiệu lần đầu của {buyer.Username} (đơn {order.Code})");
     }
 
     private void AddAudit(Guid? actorId, string actorRole, string action, string entityType, string? entityId, decimal? amount, string? detail)

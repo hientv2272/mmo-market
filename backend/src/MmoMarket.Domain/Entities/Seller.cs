@@ -25,6 +25,7 @@ public class Seller : Entity
     public int TrustScore { get; set; } = 80;
     public DateTime? LastViolationAt { get; set; }      // mốc vi phạm/penalty gần nhất (cho bonus 30 ngày)
     public DateTime? LastTrustBonusAt { get; set; }     // mốc cộng bonus gần nhất
+    public DateTime? TrustBadgeUntil { get; set; }      // badge "Uy tín" trả phí (§3.4) — còn hiệu lực nếu > now
 
     public List<Product> Products { get; set; } = new();
 }
