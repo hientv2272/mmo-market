@@ -12,7 +12,7 @@ namespace MmoMarket.Application.Sellers;
 public record SellerProductDto(
     Guid Id, string Slug, string Title, string CategorySlug, decimal Price, decimal? ComparePrice,
     string Delivery, int WarrantyDays, int Stock, int Sold, double Rating, int ReviewCount,
-    string ThumbnailColor, string? ThumbnailIcon, string Status, string Description,
+    string ThumbnailColor, string? ThumbnailIcon, string? ImageUrl, string Status, string Description,
     int InventoryAvailable, int InventoryReserved, int InventorySold,
     decimal DepositAmount, string DepositStatus, DateTime? BoostedUntil);
 
@@ -20,11 +20,11 @@ public record BoostInfoDto(int Quota, int Used, int Remaining, int DurationHours
 
 public record SellerProductCreateDto(
     string Title, string CategorySlug, decimal Price, decimal? ComparePrice, string Delivery,
-    int WarrantyDays, int Stock, string ThumbnailColor, string? ThumbnailIcon, string Description);
+    int WarrantyDays, int Stock, string ThumbnailColor, string? ThumbnailIcon, string? ImageUrl, string Description);
 
 public record SellerProductUpdateDto(
     string? Title, string? CategorySlug, decimal? Price, decimal? ComparePrice, string? Delivery,
-    int? WarrantyDays, int? Stock, string? ThumbnailColor, string? ThumbnailIcon, string? Description, string? Status);
+    int? WarrantyDays, int? Stock, string? ThumbnailColor, string? ThumbnailIcon, string? ImageUrl, string? Description, string? Status);
 
 public record SellerOrderLineDto(
     Guid OrderId, Guid OrderLineId, string OrderCode, string Status, Guid ProductId, string ProductTitle,
@@ -44,6 +44,7 @@ public record SellerInventoryDto(
 public record InventoryItemDto(Guid Id, string Preview, bool Reserved, bool Sold, Guid? OrderId, DateTime CreatedAt);
 
 public record InventoryUploadDto(string[] Items);
+public record InventoryItemUpdateDto(string? Content, bool? Reserved);
 
 public record WithdrawCreateDto(decimal Amount, string Method, string Account, string? Note, string? TotpCode);
 public record WithdrawDto(Guid Id, decimal Amount, string Method, string Account, string Status, string? Note, string? AdminNote, DateTime CreatedAt, DateTime? ProcessedAt);
@@ -160,6 +161,7 @@ public class SellerService
             Stock = Math.Max(0, dto.Stock),
             ThumbnailColor = string.IsNullOrWhiteSpace(dto.ThumbnailColor) ? category.Color : dto.ThumbnailColor,
             ThumbnailIcon = dto.ThumbnailIcon ?? category.IconKey,
+            ImageUrl = NormalizeProductImage(dto.ImageUrl),
             Description = dto.Description ?? "",
             FeaturesJson = JsonSerializer.Serialize(new[] { "Bảo hành 1-1", "Hỗ trợ 24/7" }),
             PoliciesJson = "[]",
@@ -212,6 +214,8 @@ public class SellerService
         if (dto.Stock.HasValue) product.Stock = Math.Max(0, dto.Stock.Value);
         if (!string.IsNullOrWhiteSpace(dto.ThumbnailColor)) product.ThumbnailColor = dto.ThumbnailColor;
         if (dto.ThumbnailIcon != null) product.ThumbnailIcon = dto.ThumbnailIcon;
+        // ImageUrl: "" (chuỗi rỗng) = gỡ ảnh, null = giữ nguyên, có giá trị = đổi ảnh.
+        if (dto.ImageUrl != null) product.ImageUrl = dto.ImageUrl.Length == 0 ? null : NormalizeProductImage(dto.ImageUrl);
         if (dto.Description != null) product.Description = dto.Description;
         if (!string.IsNullOrWhiteSpace(dto.Status) && Enum.TryParse<ProductStatus>(dto.Status, true, out var st))
         {
@@ -372,10 +376,28 @@ public class SellerService
             ?? throw new AppException("Không tìm thấy đơn", 404);
         if (line.Order!.Status != OrderStatus.EscrowLocked && line.Order.Status != OrderStatus.Delivering)
             throw new AppException($"Chỉ có thể giao đơn ở trạng thái EscrowLocked/Delivering (hiện {line.Order.Status})");
-        line.DeliveredItemsJson = JsonSerializer.Serialize(deliveredItems);
-        // Nếu tất cả line đã bàn giao → vào cửa sổ kiểm tra của buyer (Checking)
+        if (line.Delivery == DeliveryMethod.Hybrid && Orders.OrderService.IsLineFullyDelivered(line))
+            throw new AppException("Dòng này đã được giao đủ từ kho.");
+
+        var clean = (deliveredItems ?? Array.Empty<string>()).Select(x => (x ?? "").Trim()).Where(s => s.Length > 0).ToArray();
+        if (clean.Length == 0) throw new AppException("Hãy nhập ít nhất 1 nội dung bàn giao.");
+
+        if (line.Delivery == DeliveryMethod.Hybrid)
+        {
+            // Gộp phần đã giao tự động từ kho (nếu có) với phần seller giao tay cho đủ số lượng.
+            var existing = Orders.OrderService.DeliveredItemCount(line.DeliveredItemsJson) > 0
+                ? JsonSerializer.Deserialize<string[]>(line.DeliveredItemsJson!) ?? Array.Empty<string>()
+                : Array.Empty<string>();
+            line.DeliveredItemsJson = JsonSerializer.Serialize(existing.Concat(clean).ToArray());
+        }
+        else
+        {
+            line.DeliveredItemsJson = JsonSerializer.Serialize(clean);
+        }
+
+        // Nếu tất cả line đã bàn giao đủ → vào cửa sổ kiểm tra của buyer (Checking)
         var allLines = await _db.OrderLines.Where(l => l.OrderId == line.OrderId).ToListAsync(ct);
-        if (allLines.All(l => l.Id == line.Id || !string.IsNullOrWhiteSpace(l.DeliveredItemsJson)))
+        if (allLines.All(Orders.OrderService.IsLineFullyDelivered))
         {
             var releaseDays = await _config.GetIntAsync(ConfigKeys.EscrowReleaseDays, 2, ct);
             line.Order.Status = OrderStatus.Checking;
@@ -430,10 +452,63 @@ public class SellerService
             });
             added++;
         }
-        // Update stock to total available items
-        product.Stock = await _db.InventoryItems.CountAsync(i => i.ProductId == productId && !i.Sold, ct) + added;
         await _db.SaveChangesAsync(ct);
+        await RecomputeStockAsync(productId, ct);
         return added;
+    }
+
+    /// <summary>Sửa nội dung và/hoặc bật-tắt trạng thái "Tạm ẩn" (Reserved) của 1 mục kho. Mục đã giao không sửa được.</summary>
+    public async Task<SellerInventoryDto> UpdateInventoryItemAsync(Guid userId, Guid itemId, string? content, bool? reserved, CancellationToken ct)
+    {
+        var seller = await GetSellerForUserAsync(userId, ct);
+        var item = await _db.InventoryItems.Include(i => i.Product)
+            .FirstOrDefaultAsync(i => i.Id == itemId, ct)
+            ?? throw new AppException("Không tìm thấy mục kho", 404);
+        if (item.Product == null || item.Product.SellerId != seller.Id)
+            throw new AppException("Không có quyền thao tác mục kho này", 403);
+        if (item.Sold)
+            throw new AppException("Mục đã giao cho khách, không thể chỉnh sửa.");
+
+        if (content != null)
+        {
+            var trimmed = content.Trim();
+            if (string.IsNullOrEmpty(trimmed)) throw new AppException("Nội dung không được để trống.");
+            item.EncryptedPayload = _enc.Encrypt(trimmed); // AES-256-GCM at rest
+            item.ContentHash = Sha256(trimmed);
+        }
+        if (reserved.HasValue) item.Reserved = reserved.Value;
+        item.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        await RecomputeStockAsync(item.ProductId, ct);
+        return await GetInventoryAsync(userId, item.ProductId, ct);
+    }
+
+    /// <summary>Xoá 1 mục kho. Mục đã giao không xoá được (giữ lịch sử bàn giao).</summary>
+    public async Task<SellerInventoryDto> DeleteInventoryItemAsync(Guid userId, Guid itemId, CancellationToken ct)
+    {
+        var seller = await GetSellerForUserAsync(userId, ct);
+        var item = await _db.InventoryItems.Include(i => i.Product)
+            .FirstOrDefaultAsync(i => i.Id == itemId, ct)
+            ?? throw new AppException("Không tìm thấy mục kho", 404);
+        if (item.Product == null || item.Product.SellerId != seller.Id)
+            throw new AppException("Không có quyền thao tác mục kho này", 403);
+        if (item.Sold)
+            throw new AppException("Mục đã giao cho khách, không thể xoá.");
+
+        var productId = item.ProductId;
+        _db.InventoryItems.Remove(item);
+        await _db.SaveChangesAsync(ct);
+        await RecomputeStockAsync(productId, ct);
+        return await GetInventoryAsync(userId, productId, ct);
+    }
+
+    /// <summary>Đồng bộ Stock = số mục "Có sẵn" thật (chưa bán, chưa tạm ẩn) — đúng số có thể bán/giao.</summary>
+    private async Task RecomputeStockAsync(Guid productId, CancellationToken ct)
+    {
+        var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == productId, ct);
+        if (product == null) return;
+        product.Stock = await _db.InventoryItems.CountAsync(i => i.ProductId == productId && !i.Sold && !i.Reserved, ct);
+        await _db.SaveChangesAsync(ct);
     }
 
     public async Task<WithdrawDto> CreateWithdrawAsync(Guid userId, WithdrawCreateDto dto, CancellationToken ct)
@@ -475,7 +550,7 @@ public class SellerService
     private static SellerProductDto MapProduct(Product p, List<InventoryItem> inv) => new(
         p.Id, p.Slug, p.Title, p.CategorySlug, p.Price, p.ComparePrice,
         p.Delivery.ToString(), p.WarrantyDays, p.Stock, p.Sold, p.Rating, p.ReviewCount,
-        p.ThumbnailColor, p.ThumbnailIcon, p.Status.ToString(), p.Description,
+        p.ThumbnailColor, p.ThumbnailIcon, p.ImageUrl, p.Status.ToString(), p.Description,
         inv.Count(i => !i.Reserved && !i.Sold),
         inv.Count(i => i.Reserved && !i.Sold),
         inv.Count(i => i.Sold),
@@ -513,6 +588,23 @@ public class SellerService
         if (string.IsNullOrEmpty(raw)) return "";
         if (raw.Length <= 6) return new string('•', raw.Length);
         return raw[..3] + new string('•', Math.Min(8, raw.Length - 6)) + raw[^3..];
+    }
+
+    /// <summary>Kiểm tra ảnh đại diện: cho phép URL http(s) hoặc data URL ảnh base64 (≤2MB). Trả null nếu rỗng.</summary>
+    private static string? NormalizeProductImage(string? raw)
+    {
+        var s = raw?.Trim();
+        if (string.IsNullOrEmpty(s)) return null;
+        if (s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            s.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return s;
+        if (s.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+        {
+            // data URL base64 ~ 4/3 kích thước file. Giới hạn 2MB ảnh => ~2.8MB chuỗi.
+            if (s.Length > 2_800_000) throw new AppException("Ảnh quá lớn (tối đa 2MB). Vui lòng chọn ảnh nhỏ hơn.");
+            return s;
+        }
+        throw new AppException("Ảnh không hợp lệ. Chỉ chấp nhận file ảnh hoặc đường dẫn http(s).");
     }
 
     private static string Sha256(string s)

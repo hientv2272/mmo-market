@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
@@ -31,6 +32,8 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Logo } from "./Logo";
 import { useAuth } from "@/lib/AuthContext";
+import { apiFetch } from "@/lib/api";
+import type { ApiAdminMetrics } from "@/lib/apiTypes";
 
 const iconMap: Record<string, LucideIcon> = {
   alert: AlertTriangle,
@@ -85,7 +88,54 @@ export function DashboardLayout({
   variant?: "buyer" | "seller" | "admin";
 }) {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
+
+  // Số đếm thật cho badge sidebar (đơn cần xử lý / khiếu nại mở). Override theo href.
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (variant === "buyer") {
+          const [orders, disputes] = await Promise.all([
+            apiFetch<{ status: string }[]>("/api/orders", { token }),
+            apiFetch<{ status: string }[]>("/api/disputes/mine", { token }),
+          ]);
+          if (cancelled) return;
+          setCounts({
+            "/account/orders": orders.filter((o) => o.status === "PendingPayment" || o.status === "Checking").length,
+            "/account/disputes": disputes.filter((d) => d.status === "Open").length,
+          });
+        } else if (variant === "seller") {
+          const d = await apiFetch<{ ordersAwaitingDelivery: number; openDisputes: number }>("/api/seller/dashboard", { token });
+          if (cancelled) return;
+          setCounts({ "/seller/orders": d.ordersAwaitingDelivery });
+        } else if (variant === "admin") {
+          const m = await apiFetch<ApiAdminMetrics>("/api/admin/metrics", { token });
+          if (cancelled) return;
+          setCounts({
+            "/admin/sellers": m.kycPending,       // seller chờ duyệt KYC
+            "/admin/products": m.productsPending, // sản phẩm chờ duyệt
+            "/admin/disputes": m.openDisputes,    // khiếu nại đang mở
+            "/admin/wallet": m.pendingWithdrawals, // lệnh rút chờ xử lý
+          });
+        }
+      } catch {
+        /* badge là phụ trợ — bỏ qua lỗi tải */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, variant]);
+
+  const badgeFor = (item: NavItem): string | undefined => {
+    if (item.href in counts) {
+      const n = counts[item.href];
+      return n > 0 ? String(n) : undefined; // ẩn badge khi = 0
+    }
+    return item.badge; // giữ badge tĩnh khác (vd KYC "Cập nhật")
+  };
+
   const variantBadge = {
     buyer: { label: "Buyer", color: "bg-accent text-black" },
     seller: { label: "Seller", color: "bg-brand text-white" },
@@ -118,6 +168,7 @@ export function DashboardLayout({
               <ul className="space-y-0.5">
                 {g.items.map((item) => {
                   const Icon = iconMap[item.icon] ?? LayoutDashboard;
+                  const badge = badgeFor(item);
                   const active =
                     pathname === item.href ||
                     (item.href !== "/" && pathname.startsWith(item.href));
@@ -139,9 +190,9 @@ export function DashboardLayout({
                           )}
                         />
                         <span className="flex-1">{item.label}</span>
-                        {item.badge && (
+                        {badge && (
                           <span className="rounded-full bg-danger/20 px-1.5 py-0.5 text-[10px] font-bold text-danger">
-                            {item.badge}
+                            {badge}
                           </span>
                         )}
                       </Link>

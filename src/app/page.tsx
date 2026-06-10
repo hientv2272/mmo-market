@@ -7,14 +7,14 @@ import { PromoStrip } from "@/components/PromoStrip";
 import { SectionHeader } from "@/components/SectionHeader";
 import { SellerStrip } from "@/components/SellerStrip";
 import { SiteShell } from "@/components/SiteShell";
-import { fetchCategories, fetchProducts } from "@/lib/serverData";
-import { formatVND } from "@/lib/format";
+import { fetchActiveFlashSale, fetchCategories, fetchProducts, fetchStatsOverview } from "@/lib/serverData";
+import { formatNumber, formatVND } from "@/lib/format";
 import Link from "next/link";
 
 export const revalidate = 30;
 
 export default async function Home() {
-  const [categories, allProducts, top, fresh, ai, tools, courses] = await Promise.all([
+  const [categories, allProducts, top, fresh, ai, tools, courses, flashSale, stats] = await Promise.all([
     fetchCategories(),
     fetchProducts({ pageSize: 60 }),
     fetchProducts({ sort: "bestseller", pageSize: 10 }),
@@ -22,13 +22,15 @@ export default async function Home() {
     fetchProducts({ category: "ai", pageSize: 5 }),
     fetchProducts({ category: "tool", pageSize: 5 }),
     fetchProducts({ category: "course", pageSize: 5 }),
+    fetchActiveFlashSale(),
+    fetchStatsOverview(),
   ]);
   const flash = allProducts.filter((p) => p.comparePrice && p.comparePrice > p.price).slice(0, 5);
 
   return (
     <SiteShell>
       <PromoStrip />
-      <Hero />
+      <Hero stats={stats} />
       <BannerGrid />
 
       {/* Categories */}
@@ -49,7 +51,7 @@ export default async function Home() {
       <section className="mx-auto mt-12 max-w-7xl px-4">
         <SectionHeader
           title="Flash Sale"
-          subtitle="Giảm sốc, số lượng có hạn — kết thúc trong 04:21:35"
+          subtitle={flashSale ? `Giảm đến ${flashSale.discountPercent}% — số lượng có hạn` : "Giảm sốc, số lượng có hạn — nhanh tay kẻo lỡ"}
           href="/flash-sale"
           accent="⚡"
         />
@@ -160,7 +162,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <AffiliateBanner />
+      <AffiliateBanner stats={stats} />
       <SellerStrip />
 
       {/* Trust strip */}
@@ -212,19 +214,19 @@ export default async function Home() {
           </p>
           <div className="mx-auto mt-8 grid max-w-4xl grid-cols-2 gap-4 text-center md:grid-cols-4">
             <div>
-              <div className="num text-2xl font-extrabold text-text">128K+</div>
-              <div className="text-xs text-text-muted">Đơn hàng giao auto</div>
+              <div className="num text-2xl font-extrabold text-text">{stats ? formatNumber(stats.totalCompletedOrders) : "—"}</div>
+              <div className="text-xs text-text-muted">Đơn hàng hoàn tất</div>
             </div>
             <div>
-              <div className="num text-2xl font-extrabold text-text">7K+</div>
-              <div className="text-xs text-text-muted">Người bán đã KYC</div>
+              <div className="num text-2xl font-extrabold text-text">{stats ? formatNumber(stats.totalSellers) : "—"}</div>
+              <div className="text-xs text-text-muted">Người bán</div>
             </div>
             <div>
-              <div className="num text-2xl font-extrabold text-text">{formatVND(2_482_550_000)}</div>
+              <div className="num text-2xl font-extrabold text-text">{stats ? formatVND(stats.gmv30d) : "—"}</div>
               <div className="text-xs text-text-muted">GMV 30 ngày</div>
             </div>
             <div>
-              <div className="num text-2xl font-extrabold text-text">{Math.max(allProducts.length * 350, 1000)}+</div>
+              <div className="num text-2xl font-extrabold text-text">{stats ? formatNumber(stats.totalProducts) : "—"}</div>
               <div className="text-xs text-text-muted">Sản phẩm đang bán</div>
             </div>
           </div>

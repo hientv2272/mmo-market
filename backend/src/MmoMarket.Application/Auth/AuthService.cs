@@ -69,7 +69,7 @@ public class AuthService
         {
             UserId = user.Id,
             Type = WalletTxnType.Bonus,
-            Amount = 100_000m,
+            Amount = welcomeBonus,
             Status = WalletTxnStatus.Completed,
             Note = "Quà chào mừng",
         });
@@ -145,7 +145,7 @@ public class AuthService
             {
                 UserId = user.Id,
                 Type   = WalletTxnType.Bonus,
-                Amount = 100_000m,
+                Amount = welcomeBonus,
                 Status = WalletTxnStatus.Completed,
                 Note   = "Quà chào mừng",
             });

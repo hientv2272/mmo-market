@@ -23,6 +23,7 @@ public static class Seeder
         await SeedDemoLoyaltyRewardsAsync(db, ct);
         await SeedSellerPlansAsync(db, ct);
         await SeedFeeConfigsAsync(db, ct);
+        await ReconcileSellerRatingsAsync(db, ct);
         if (await db.Categories.AnyAsync(ct)) return;
 
         // Categories — match frontend slugs
@@ -449,6 +450,7 @@ public static class Seeder
         await AddColumnIfMissingAsync(db, "KycSubmissions", "FrontImage", "TEXT NULL", ct);
         await AddColumnIfMissingAsync(db, "KycSubmissions", "BackImage", "TEXT NULL", ct);
         await AddColumnIfMissingAsync(db, "Products", "BoostedUntil", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Products", "ImageUrl", "TEXT NULL", ct);
         await AddColumnIfMissingAsync(db, "Users", "AffiliateRewarded", "INTEGER NOT NULL DEFAULT 0", ct);
         await AddColumnIfMissingAsync(db, "Sellers", "TrustBadgeUntil", "TEXT NULL", ct);
         await AddColumnIfMissingAsync(db, "BoostLogs", "Paid", "INTEGER NOT NULL DEFAULT 0", ct);
@@ -577,6 +579,29 @@ public static class Seeder
             new FeeConfig { CategorySlug = "engagement", MinPrice = 0m, MaxPrice = null, SellerFeePercent = 12m, Note = "Dịch vụ MMO / tăng tương tác" }
         );
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Đồng bộ rating shop = tổng hợp từ sản phẩm (bình quân có trọng số theo số đánh giá).
+    /// Chạy mỗi lần khởi động để chữa dữ liệu shop bị lệch (vd rating về 0 do bug cũ).</summary>
+    private static async Task ReconcileSellerRatingsAsync(AppDbContext db, CancellationToken ct)
+    {
+        var sellers = await db.Sellers.ToListAsync(ct);
+        if (sellers.Count == 0) return;
+        var changed = false;
+        foreach (var seller in sellers)
+        {
+            var products = await db.Products.Where(p => p.SellerId == seller.Id)
+                .Select(p => new { p.Rating, p.ReviewCount }).ToListAsync(ct);
+            var total = products.Sum(p => p.ReviewCount);
+            var rating = total == 0 ? 0 : Math.Round(products.Sum(p => p.Rating * p.ReviewCount) / total, 2);
+            if (seller.ReviewCount != total || Math.Abs(seller.Rating - rating) > 0.001)
+            {
+                seller.ReviewCount = total;
+                seller.Rating = rating;
+                changed = true;
+            }
+        }
+        if (changed) await db.SaveChangesAsync(ct);
     }
 
     private static async Task SeedDemoLoyaltyRewardsAsync(AppDbContext db, CancellationToken ct)

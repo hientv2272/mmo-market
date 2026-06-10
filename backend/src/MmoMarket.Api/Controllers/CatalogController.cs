@@ -14,14 +14,21 @@ public class CatalogController : ControllerBase
     public async Task<CategoryDto[]> Categories(CancellationToken ct) => await _svc.GetCategoriesAsync(ct);
 
     [HttpGet("products")]
-    public async Task<ProductListResponse> List([FromQuery] string? category, [FromQuery] string? sort, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken ct = default)
-        => await _svc.ListAsync(category, sort, Math.Max(page, 1), Math.Clamp(pageSize, 1, 100), ct);
+    public async Task<ProductListResponse> List([FromQuery] string? category, [FromQuery] string? sort, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? q = null, CancellationToken ct = default)
+        => await _svc.ListAsync(category, sort, Math.Max(page, 1), Math.Clamp(pageSize, 1, 100), ct, q);
 
     [HttpGet("products/{slug}")]
     public async Task<IActionResult> Detail(string slug, CancellationToken ct)
     {
         var p = await _svc.GetBySlugAsync(slug, ct);
         return p == null ? NotFound() : Ok(p);
+    }
+
+    [HttpGet("flash-sale/active")]
+    public async Task<IActionResult> ActiveFlashSale(CancellationToken ct)
+    {
+        var f = await _svc.GetActiveFlashSaleAsync(ct);
+        return f == null ? NoContent() : Ok(f);
     }
 
     [HttpGet("sellers")]

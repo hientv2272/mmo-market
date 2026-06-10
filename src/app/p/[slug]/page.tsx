@@ -18,7 +18,8 @@ import { SiteShell } from "@/components/SiteShell";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { AddToCartButton } from "@/components/AddToCartButton";
-import { fetchCategories, fetchProductBySlug, fetchProducts } from "@/lib/serverData";
+import { Countdown } from "@/components/Countdown";
+import { fetchActiveFlashSale, fetchCategories, fetchProductBySlug, fetchProducts } from "@/lib/serverData";
 import { formatNumber, formatVND, formatRelativeTime } from "@/lib/format";
 
 export const revalidate = 30;
@@ -38,9 +39,10 @@ export default async function ProductDetailPage({
   if (!data) notFound();
   const { product, reviews: productReviews, seller } = data;
 
-  const [categories, related] = await Promise.all([
+  const [categories, related, flashSale] = await Promise.all([
     fetchCategories(),
     fetchProducts({ category: product.category, pageSize: 6 }),
+    fetchActiveFlashSale(),
   ]);
   const category = categories.find((c) => c.slug === product.category);
   const relatedFiltered = related.filter((p) => p.id !== product.id).slice(0, 5);
@@ -48,14 +50,11 @@ export default async function ProductDetailPage({
     ? 100 - Math.round((product.price / product.comparePrice) * 100)
     : 0;
 
-  // Rating distribution mock
-  const distribution = [
-    { stars: 5, count: Math.floor(product.reviewCount * 0.72) },
-    { stars: 4, count: Math.floor(product.reviewCount * 0.18) },
-    { stars: 3, count: Math.floor(product.reviewCount * 0.06) },
-    { stars: 2, count: Math.floor(product.reviewCount * 0.02) },
-    { stars: 1, count: Math.floor(product.reviewCount * 0.02) },
-  ];
+  // Phân bố sao tính từ đánh giá thật của sản phẩm
+  const distribution = [5, 4, 3, 2, 1].map((stars) => ({
+    stars,
+    count: productReviews.filter((r) => Math.round(r.rating) === stars).length,
+  }));
 
   return (
     <SiteShell>
@@ -81,36 +80,34 @@ export default async function ProductDetailPage({
                   background: `linear-gradient(135deg, ${product.thumbnailColor}50, ${product.thumbnailColor}10)`,
                 }}
               >
-                <div className="absolute inset-0 bg-dots opacity-30" />
-                <div className="absolute inset-0 grid place-items-center">
-                  <div
-                    className="grid size-40 place-items-center rounded-3xl text-6xl font-black text-white shadow-2xl"
-                    style={{
-                      background: product.thumbnailColor,
-                      boxShadow: `0 30px 80px -20px ${product.thumbnailColor}`,
-                    }}
-                  >
-                    {product.thumbnailIcon ?? product.title[0]}
-                  </div>
-                </div>
+                {product.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={product.image}
+                    alt={product.title}
+                    className="absolute inset-0 size-full object-cover"
+                  />
+                ) : (
+                  <>
+                    <div className="absolute inset-0 bg-dots opacity-30" />
+                    <div className="absolute inset-0 grid place-items-center">
+                      <div
+                        className="grid size-40 place-items-center rounded-3xl text-6xl font-black text-white shadow-2xl"
+                        style={{
+                          background: product.thumbnailColor,
+                          boxShadow: `0 30px 80px -20px ${product.thumbnailColor}`,
+                        }}
+                      >
+                        {product.thumbnailIcon ?? product.title[0]}
+                      </div>
+                    </div>
+                  </>
+                )}
                 {discount > 0 && (
                   <span className="absolute left-4 top-4 rounded-md bg-danger px-2 py-1 text-xs font-bold text-white">
                     -{discount}%
                   </span>
                 )}
-              </div>
-              <div className="grid grid-cols-4 gap-2 border-t border-border p-3">
-                {[0, 1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className={`aspect-square cursor-pointer rounded-lg border ${
-                      i === 0 ? "border-brand" : "border-border"
-                    }`}
-                    style={{
-                      background: `linear-gradient(135deg, ${product.thumbnailColor}40, ${product.thumbnailColor}10)`,
-                    }}
-                  />
-                ))}
               </div>
             </div>
 
@@ -199,12 +196,12 @@ export default async function ProductDetailPage({
                   </>
                 )}
               </div>
-              {product.badges?.includes("flash") && (
+              {product.badges?.includes("flash") && flashSale && (
                 <div className="mt-3 flex items-center gap-2 text-sm text-warning">
                   <Clock className="size-4" />
                   Flash sale kết thúc trong{" "}
                   <span className="num rounded-md bg-warning/15 px-2 py-0.5 font-bold">
-                    04:21:35
+                    <Countdown endsAt={flashSale.endsAt} />
                   </span>
                 </div>
               )}

@@ -37,8 +37,9 @@ public class OrderService
     private readonly TotpService _totp;
     private readonly Fees.FeeService _fee;
     private readonly Sellers.TrustScoreService _trust;
-    public OrderService(IAppDbContext db, CouponService coupon, ConfigService config, TotpService totp, Fees.FeeService fee, Sellers.TrustScoreService trust)
-    { _db = db; _coupon = coupon; _config = config; _totp = totp; _fee = fee; _trust = trust; }
+    private readonly IEncryptionService _enc;
+    public OrderService(IAppDbContext db, CouponService coupon, ConfigService config, TotpService totp, Fees.FeeService fee, Sellers.TrustScoreService trust, IEncryptionService enc)
+    { _db = db; _coupon = coupon; _config = config; _totp = totp; _fee = fee; _trust = trust; _enc = enc; }
 
     public async Task<OrderDto> CheckoutAsync(Guid userId, CheckoutDto dto, CancellationToken ct)
     {
@@ -147,24 +148,46 @@ public class OrderService
 
     private async Task ProcessPaidOrderAsync(Order order, CancellationToken ct)
     {
-        var allAuto = order.Lines.All(l => l.Delivery == DeliveryMethod.Auto);
-        if (allAuto)
+        // Bàn giao tự động từ kho theo từng dòng:
+        //  • Auto   → phải đủ hàng trong kho, thiếu thì chặn thanh toán.
+        //  • Hybrid → lấy được bao nhiêu trong kho thì giao ngay bấy nhiêu, phần thiếu chuyển sang chờ giao tay.
+        //  • Manual → luôn chờ seller giao tay.
+        var consumedFromStock = new Dictionary<Guid, int>();
+        foreach (var line in order.Lines)
         {
-            foreach (var line in order.Lines)
+            consumedFromStock[line.Id] = 0;
+            if (line.Delivery == DeliveryMethod.Manual) continue;
+
+            // Lấy tối đa `Quantity` item còn trong kho (chưa bán, chưa giữ chỗ) theo FIFO.
+            var stock = await _db.InventoryItems
+                .Where(i => i.ProductId == line.ProductId && !i.Sold && !i.Reserved)
+                .OrderBy(i => i.CreatedAt)
+                .Take(line.Quantity)
+                .ToListAsync(ct);
+            if (line.Delivery == DeliveryMethod.Auto && stock.Count < line.Quantity)
+                throw new AppException($"Sản phẩm \"{line.Title}\" không đủ hàng trong kho auto-deliver (còn {stock.Count}/{line.Quantity}).");
+
+            foreach (var item in stock)
             {
-                var fakeAccount = $"acct{Random.Shared.Next(1000, 9999)}@deliv.local";
-                line.DeliveredItemsJson = JsonSerializer.Serialize(new[] {
-                    new { account = fakeAccount, password = Guid.NewGuid().ToString("N")[..10], note = "Vui lòng đổi mật khẩu trong 24h." }
-                });
+                item.Sold = true;
+                item.OrderId = order.Id;
             }
-            // Bàn giao tự động ngay → vào cửa sổ kiểm tra của buyer (Checking).
+            // Bàn giao chính nội dung kho (đã giải mã), KHÔNG sinh dữ liệu giả.
+            if (stock.Count > 0)
+                line.DeliveredItemsJson = JsonSerializer.Serialize(stock.Select(i => _enc.Decrypt(i.EncryptedPayload)).ToArray());
+            consumedFromStock[line.Id] = stock.Count;
+        }
+
+        if (order.Lines.All(IsLineFullyDelivered))
+        {
+            // Mọi dòng đã giao đủ ngay khi thanh toán → vào cửa sổ kiểm tra của buyer (Checking).
             order.Status = OrderStatus.Checking;
             order.DeliveredAt = DateTime.UtcNow;
             order.EscrowReleaseAt = await GetEscrowReleaseAtAsync(ct);
         }
         else
         {
-            // Bàn giao thủ công → chờ seller giao trong cửa sổ T+N giờ (auto-cancel nếu trễ).
+            // Còn dòng chờ giao tay (Manual, hoặc Hybrid hụt kho) → chờ seller trong cửa sổ T+N giờ.
             order.Status = OrderStatus.Delivering;
             order.DeliverDueAt = await GetDeliverDueAtAsync(ct);
         }
@@ -172,7 +195,13 @@ public class OrderService
         foreach (var line in order.Lines)
         {
             var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == line.ProductId, ct);
-            if (product != null) product.Sold += line.Quantity;
+            if (product != null)
+            {
+                product.Sold += line.Quantity;
+                // Manual: trừ tồn theo số đã bán; Auto/Hybrid: chỉ trừ đúng số item thực sự lấy khỏi kho.
+                var decrement = line.Delivery == DeliveryMethod.Manual ? line.Quantity : consumedFromStock[line.Id];
+                product.Stock = Math.Max(0, product.Stock - decrement);
+            }
             var seller = await _db.Sellers.FirstOrDefaultAsync(s => s.Id == line.SellerId, ct);
             if (seller != null) seller.TotalSold += line.Quantity;
 
@@ -384,13 +413,33 @@ public class OrderService
         });
     }
 
+    /// <summary>Một dòng coi như đã giao đủ: Hybrid cần số item bàn giao ≥ số lượng; Auto/Manual chỉ cần có nội dung bàn giao.</summary>
+    public static bool IsLineFullyDelivered(OrderLine line) =>
+        line.Delivery == DeliveryMethod.Hybrid
+            ? DeliveredItemCount(line.DeliveredItemsJson) >= line.Quantity
+            : !string.IsNullOrWhiteSpace(line.DeliveredItemsJson);
+
+    /// <summary>Đếm số item đã bàn giao từ JSON mảng. Chuỗi không phải mảng coi như 1 item.</summary>
+    public static int DeliveredItemCount(string? deliveredItemsJson)
+    {
+        if (string.IsNullOrWhiteSpace(deliveredItemsJson)) return 0;
+        try { return JsonSerializer.Deserialize<string[]>(deliveredItemsJson)?.Length ?? 0; }
+        catch { return 1; }
+    }
+
     public static OrderDto Map(Order o) => new(
         o.Id, o.Code, o.Status.ToString(), o.PaymentMethod.ToString(),
         o.Subtotal, o.Discount, o.Fee, o.Total,
         o.CreatedAt, o.PaidAt, o.DeliverDueAt, o.DeliveredAt, o.EscrowReleaseAt, o.CompletedAt,
         o.Lines.Select(l => new OrderLineDto(
             l.Id, l.ProductId, l.Title, l.UnitPrice, l.Quantity, l.Delivery.ToString(),
-            string.IsNullOrWhiteSpace(l.DeliveredItemsJson)
-                ? null
-                : new[] { l.DeliveredItemsJson })).ToArray());
+            ParseDeliveredItems(l.DeliveredItemsJson))).ToArray());
+
+    /// <summary>Tách JSON mảng nội dung đã bàn giao thành string[] cho client. Chuỗi không phải mảng coi như 1 item.</summary>
+    private static string[]? ParseDeliveredItems(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<string[]>(json); }
+        catch { return new[] { json }; }
+    }
 }

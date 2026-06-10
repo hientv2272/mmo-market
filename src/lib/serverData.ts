@@ -1,5 +1,6 @@
 import "server-only";
 import { API_URL } from "./api";
+import { mapProduct } from "./productMap";
 import type {
   ApiCategory,
   ApiProductDetail,
@@ -13,7 +14,6 @@ import type {
   ReviewItem,
   Seller,
   CategorySlug,
-  DeliveryMethod,
 } from "./types";
 
 async function safeFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
@@ -53,22 +53,6 @@ function mapCategory(c: ApiCategory): Category {
   };
 }
 
-function mapDelivery(d: string): DeliveryMethod {
-  return (d.toLowerCase() as DeliveryMethod) || "auto";
-}
-
-function mapBadges(input: string[]): Product["badges"] {
-  const out: Product["badges"] = [];
-  for (const b of input) {
-    const lo = b.toLowerCase();
-    if (lo.includes("hot") || lo.includes("flash")) out.push("flash");
-    else if (lo.includes("top")) out.push("top");
-    else if (lo.includes("new") || lo.includes("mới")) out.push("new");
-    else if (lo.includes("limit") || lo.includes("giới hạn")) out.push("limited");
-  }
-  return out.length > 0 ? out : ["top"];
-}
-
 function mapSeller(s: ApiSellerSummary): Seller {
   const kyc = s.kycStatus.toLowerCase();
   return {
@@ -78,45 +62,12 @@ function mapSeller(s: ApiSellerSummary): Seller {
     avatarColor: s.avatarColor,
     rating: s.rating,
     reviewCount: s.reviewCount,
-    joinedAt: new Date().toISOString(),
+    joinedAt: s.joinedAt ?? new Date().toISOString(),
     totalSold: s.totalSold,
     badge: (s.badge as Seller["badge"]) || undefined,
     kycStatus: (kyc === "approved" || kyc === "pending" || kyc === "rejected" ? kyc : "approved") as Seller["kycStatus"],
     trustScore: s.trustScore,
-  };
-}
-
-function mapProduct(p: ApiProductListItem): Product {
-  return {
-    id: p.id,
-    slug: p.slug,
-    title: p.title,
-    category: p.categorySlug as CategorySlug,
-    thumbnailColor: p.thumbnailColor,
-    thumbnailIcon: p.thumbnailIcon || undefined,
-    price: p.price,
-    comparePrice: p.comparePrice || undefined,
-    rating: p.rating,
-    reviewCount: p.reviewCount,
-    sold: p.sold,
-    stock: p.stock,
-    delivery: mapDelivery(p.delivery),
-    warrantyDays: p.warrantyDays,
-    sellerId: p.seller.id,
-    seller: {
-      id: p.seller.id,
-      username: p.seller.username,
-      displayName: p.seller.displayName,
-      avatarColor: p.seller.avatarColor,
-      badge: (p.seller.badge as "verified" | "top" | "new" | undefined) || undefined,
-    },
-    badges: mapBadges(p.badges),
-    shortDescription: `${p.title} — bảo hành ${p.warrantyDays} ngày`,
-    description: "",
-    features: [],
-    policies: [],
-    faq: [],
-    createdAt: new Date().toISOString(),
+    responseTime: s.responseTime ?? undefined,
   };
 }
 
@@ -142,6 +93,27 @@ function mapProductDetail(p: ApiProductDetail): { product: Product; reviews: Rev
   };
 }
 
+export type StatsOverview = {
+  totalProducts: number;
+  totalSellers: number;
+  gmv30d: number;
+  orders30d: number;
+  totalCompletedOrders: number;
+  avgRating: number;
+  affiliateTotalPaid: number;
+  activeAffiliates: number;
+};
+
+export async function fetchStatsOverview(): Promise<StatsOverview | null> {
+  return await safeFetch<StatsOverview>("/api/stats/overview");
+}
+
+export type ActiveFlashSale = { id: string; title: string; discountPercent: number; startsAt: string; endsAt: string };
+
+export async function fetchActiveFlashSale(): Promise<ActiveFlashSale | null> {
+  return await safeFetch<ActiveFlashSale>("/api/flash-sale/active");
+}
+
 export async function fetchCategories(): Promise<Category[]> {
   const data = await safeFetch<ApiCategory[]>("/api/categories");
   if (!data) {
@@ -151,16 +123,22 @@ export async function fetchCategories(): Promise<Category[]> {
   return data.map(mapCategory);
 }
 
-export async function fetchProducts(opts: { category?: string; sort?: string; page?: number; pageSize?: number } = {}): Promise<Product[]> {
+export async function fetchProducts(opts: { category?: string; sort?: string; page?: number; pageSize?: number; q?: string } = {}): Promise<Product[]> {
   const params = new URLSearchParams();
   if (opts.category) params.set("category", opts.category);
   if (opts.sort) params.set("sort", opts.sort);
+  if (opts.q) params.set("q", opts.q);
   params.set("page", String(opts.page ?? 1));
   params.set("pageSize", String(opts.pageSize ?? 60));
   const data = await safeFetch<ApiProductListResponse>(`/api/products?${params}`);
   if (!data) {
     const { products } = await import("./data");
-    return opts.category ? products.filter((p) => p.category === opts.category) : products;
+    let list = opts.category ? products.filter((p) => p.category === opts.category) : products;
+    if (opts.q) {
+      const term = opts.q.toLowerCase();
+      list = list.filter((p) => p.title.toLowerCase().includes(term) || p.description?.toLowerCase().includes(term));
+    }
+    return list;
   }
   return data.items.map(mapProduct);
 }

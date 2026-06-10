@@ -6,7 +6,7 @@ import { OrderStatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
-import type { ApiOrder, ApiOrderLine } from "@/lib/apiTypes";
+import type { ApiOrder, ApiOrderLine, ApiOwnReview } from "@/lib/apiTypes";
 import type { OrderStatus } from "@/lib/types";
 import { formatRelativeTime, formatVND } from "@/lib/format";
 
@@ -45,6 +45,7 @@ export function OrdersClient() {
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
   const [disputeForm, setDisputeForm] = useState({ title: "", body: "" });
   const [modalBusy, setModalBusy] = useState(false);
+  const [reviewed, setReviewed] = useState<Set<string>>(new Set()); // `${orderId}:${productId}`
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -60,6 +61,13 @@ export function OrdersClient() {
   }, [token, tab]);
 
   useEffect(() => { if (!authLoading) reload(); }, [authLoading, reload]);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<ApiOwnReview[]>("/api/reviews/mine", { token })
+      .then((rs) => setReviewed(new Set(rs.filter((r) => r.orderId).map((r) => `${r.orderId}:${r.productId}`))))
+      .catch(() => { /* không chặn trang nếu lỗi tải đánh giá */ });
+  }, [token]);
 
   const confirm = async (id: string) => {
     if (!token) return;
@@ -103,6 +111,7 @@ export function OrdersClient() {
           comment: reviewForm.comment,
         }),
       });
+      setReviewed((prev) => new Set(prev).add(`${reviewTarget.orderId}:${reviewTarget.line.productId}`));
       setReviewTarget(null);
       setReviewForm({ rating: 5, comment: "" });
     } catch (e) {
@@ -193,8 +202,10 @@ export function OrdersClient() {
                           <div className="line-clamp-1 text-sm font-medium text-text">{l.title}</div>
                           <div className="text-xs text-text-muted">SL {l.quantity} · {l.delivery === "Auto" ? "⚡ Auto" : "👤 Manual"}</div>
                           {l.deliveredItems && l.deliveredItems.length > 0 && (
-                            <div className="mt-1 break-all font-mono text-[11px] text-success">
-                              ✓ {l.deliveredItems[0].slice(0, 100)}{l.deliveredItems[0].length > 100 ? "..." : ""}
+                            <div className="mt-1 space-y-0.5">
+                              {l.deliveredItems.map((it, i) => (
+                                <div key={i} className="break-all font-mono text-[11px] text-success">✓ {it}</div>
+                              ))}
                             </div>
                           )}
                         </div>
@@ -220,7 +231,11 @@ export function OrdersClient() {
                         </Button>
                       )}
                       {(o.status === "Completed" || o.status === "Checking") && o.lines[0] && (
-                        <Button variant="soft" size="sm" leftIcon={<Star className="size-3.5" />} onClick={() => setReviewTarget({ orderId: o.id, line: o.lines[0] })}>Đánh giá</Button>
+                        reviewed.has(`${o.id}:${o.lines[0].productId}`) ? (
+                          <Button variant="soft" size="sm" disabled leftIcon={<Star className="size-3.5" />}>Đã đánh giá</Button>
+                        ) : (
+                          <Button variant="soft" size="sm" leftIcon={<Star className="size-3.5" />} onClick={() => setReviewTarget({ orderId: o.id, line: o.lines[0] })}>Đánh giá</Button>
+                        )
                       )}
                       {(o.status === "Checking" || o.status === "Completed") && (
                         <Button variant="outline" size="sm" leftIcon={<AlertTriangle className="size-3.5" />} onClick={() => setDisputeTarget({ orderId: o.id, orderCode: o.code })}>Mở khiếu nại</Button>

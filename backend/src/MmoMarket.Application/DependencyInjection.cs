@@ -47,6 +47,9 @@ public static class DependencyInjection
         services.AddScoped<Fees.FeeService>();
         services.AddScoped<TransactionLimitService>();
         services.AddScoped<TrustScoreService>();
+        services.AddScoped<Loyalty.LoyaltyService>();
+        services.AddScoped<Stats.StatsService>();
+        services.AddScoped<Referrals.ReferralService>();
         return services;
     }
 }

@@ -8,7 +8,7 @@ namespace MmoMarket.Application.Reviews;
 
 public record ReviewCreateDto(Guid OrderId, Guid ProductId, int Rating, string Comment);
 public record ReviewUpdateDto(int Rating, string Comment);
-public record OwnReviewDto(Guid Id, Guid ProductId, string ProductTitle, string? ProductSlug, int Rating, string Comment, DateTime CreatedAt, string? Reply);
+public record OwnReviewDto(Guid Id, Guid ProductId, string ProductTitle, string? ProductSlug, int Rating, string Comment, DateTime CreatedAt, string? Reply, Guid? OrderId);
 
 public class ReviewService
 {
@@ -28,58 +28,42 @@ public class ReviewService
         if (!order.Lines.Any(l => l.ProductId == dto.ProductId))
             throw new AppException("Sản phẩm không thuộc đơn này");
 
+        // Mỗi đơn chỉ được đánh giá 1 lần cho mỗi sản phẩm. Muốn sửa thì dùng PUT /api/reviews/{id}.
         var existing = await _db.Reviews.FirstOrDefaultAsync(r => r.OrderId == dto.OrderId && r.ProductId == dto.ProductId && r.UserId == userId, ct);
-        Review review;
         if (existing != null)
-        {
-            existing.Rating = dto.Rating;
-            existing.Comment = dto.Comment;
-            review = existing;
-        }
-        else
-        {
-            review = new Review
-            {
-                OrderId = dto.OrderId,
-                ProductId = dto.ProductId,
-                UserId = userId,
-                Rating = dto.Rating,
-                Comment = dto.Comment,
-            };
-            _db.Reviews.Add(review);
-        }
+            throw new AppException("Bạn đã đánh giá sản phẩm này trong đơn rồi. Vào mục Đánh giá để chỉnh sửa.");
 
-        // Recompute product rating + count
+        var review = new Review
+        {
+            OrderId = dto.OrderId,
+            ProductId = dto.ProductId,
+            UserId = userId,
+            Rating = dto.Rating,
+            Comment = dto.Comment.Trim(),
+        };
+        _db.Reviews.Add(review);
+
+        // Recompute product rating + count (gồm cả review mới chưa lưu)
         var productReviews = await _db.Reviews.Where(r => r.ProductId == dto.ProductId).ToListAsync(ct);
-        if (existing == null) productReviews.Add(review);
+        productReviews.Add(review);
         var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == dto.ProductId, ct);
         if (product != null)
         {
             product.ReviewCount = productReviews.Count;
             product.Rating = Math.Round(productReviews.Average(r => (double)r.Rating), 2);
-            // Bump seller rating too
-            var seller = await _db.Sellers.FirstOrDefaultAsync(s => s.Id == product.SellerId, ct);
-            if (seller != null)
-            {
-                var sellerProductIds = await _db.Products.Where(p => p.SellerId == seller.Id).Select(p => p.Id).ToListAsync(ct);
-                var sellerReviews = await _db.Reviews.Where(r => sellerProductIds.Contains(r.ProductId)).ToListAsync(ct);
-                seller.ReviewCount = sellerReviews.Count;
-                seller.Rating = sellerReviews.Count == 0 ? 0 : Math.Round(sellerReviews.Average(r => (double)r.Rating), 2);
-            }
-            // Trust Score: chỉ tính khi đánh giá mới (P2.1)
-            if (existing == null)
-                await _trust.OnReviewAsync(product.SellerId, dto.Rating, ct);
+            await RecomputeSellerRatingAsync(product.SellerId, ct);
+            await _trust.OnReviewAsync(product.SellerId, dto.Rating, ct);
         }
 
         await _db.SaveChangesAsync(ct);
 
-        return new OwnReviewDto(review.Id, review.ProductId, product?.Title ?? "", product?.Slug, review.Rating, review.Comment, review.CreatedAt, review.Reply);
+        return new OwnReviewDto(review.Id, review.ProductId, product?.Title ?? "", product?.Slug, review.Rating, review.Comment, review.CreatedAt, review.Reply, review.OrderId);
     }
 
     public async Task<OwnReviewDto[]> GetMineAsync(Guid userId, CancellationToken ct)
     {
         var reviews = await _db.Reviews.Include(r => r.Product).Where(r => r.UserId == userId).OrderByDescending(r => r.CreatedAt).ToListAsync(ct);
-        return reviews.Select(r => new OwnReviewDto(r.Id, r.ProductId, r.Product?.Title ?? "", r.Product?.Slug, r.Rating, r.Comment, r.CreatedAt, r.Reply)).ToArray();
+        return reviews.Select(r => new OwnReviewDto(r.Id, r.ProductId, r.Product?.Title ?? "", r.Product?.Slug, r.Rating, r.Comment, r.CreatedAt, r.Reply, r.OrderId)).ToArray();
     }
 
     public async Task<OwnReviewDto> UpdateAsync(Guid userId, Guid reviewId, ReviewUpdateDto dto, CancellationToken ct)
@@ -99,9 +83,23 @@ public class ReviewService
         {
             var productReviews = await _db.Reviews.Where(r => r.ProductId == product.Id).ToListAsync(ct);
             product.Rating = Math.Round(productReviews.Average(r => (double)r.Rating), 2);
+            await RecomputeSellerRatingAsync(product.SellerId, ct);
         }
 
         await _db.SaveChangesAsync(ct);
-        return new OwnReviewDto(review.Id, review.ProductId, product?.Title ?? "", product?.Slug, review.Rating, review.Comment, review.CreatedAt, review.Reply);
+        return new OwnReviewDto(review.Id, review.ProductId, product?.Title ?? "", product?.Slug, review.Rating, review.Comment, review.CreatedAt, review.Reply, review.OrderId);
+    }
+
+    /// <summary>Tổng hợp rating shop từ toàn bộ sản phẩm của shop: bình quân có trọng số theo số đánh giá mỗi SP.</summary>
+    private async Task RecomputeSellerRatingAsync(Guid sellerId, CancellationToken ct)
+    {
+        var seller = await _db.Sellers.FirstOrDefaultAsync(s => s.Id == sellerId, ct);
+        if (seller == null) return;
+        var products = await _db.Products.Where(p => p.SellerId == sellerId).Select(p => new { p.Rating, p.ReviewCount }).ToListAsync(ct);
+        var totalCount = products.Sum(p => p.ReviewCount);
+        seller.ReviewCount = totalCount;
+        seller.Rating = totalCount == 0
+            ? 0
+            : Math.Round(products.Sum(p => p.Rating * p.ReviewCount) / totalCount, 2);
     }
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Mail, Lock, User, AtSign, AlertCircle } from "lucide-react";
 import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { Button } from "@/components/ui/Button";
@@ -11,12 +11,13 @@ import { useAuth } from "@/lib/AuthContext";
 export function RegisterForm() {
   const { register, loginWithGoogle } = useAuth();
   const router = useRouter();
+  const refParam = useSearchParams().get("ref") ?? "";
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [referralCode, setReferralCode] = useState("");
+  const [referralCode, setReferralCode] = useState(refParam);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Database, Loader2, Upload } from "lucide-react";
+import { Database, Loader2, Upload, Pencil, Trash2, Eye, EyeOff, X } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -9,7 +9,7 @@ import { Stat } from "@/components/ui/Stat";
 import { sellerNav } from "@/lib/sellerNav";
 import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
-import type { ApiSellerInventoryView, ApiSellerProduct } from "@/lib/apiTypes";
+import type { ApiSellerInventoryItem, ApiSellerInventoryView, ApiSellerProduct } from "@/lib/apiTypes";
 import { formatRelativeTime } from "@/lib/format";
 
 export function SellerInventoryClient() {
@@ -22,6 +22,10 @@ export function SellerInventoryClient() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<ApiSellerInventoryItem | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -72,6 +76,61 @@ export function SellerInventoryClient() {
     }
   };
 
+  const toggleHold = async (it: ApiSellerInventoryItem) => {
+    if (!token) return;
+    setBusyId(it.id);
+    try {
+      const v = await apiFetch<ApiSellerInventoryView>(`/api/seller/inventory/item/${it.id}`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ reserved: !it.reserved }),
+      });
+      setView(v);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const removeItem = async (it: ApiSellerInventoryItem) => {
+    if (!token) return;
+    if (!confirm("Xoá mục này khỏi kho? Hành động không thể hoàn tác.")) return;
+    setBusyId(it.id);
+    try {
+      const v = await apiFetch<ApiSellerInventoryView>(`/api/seller/inventory/item/${it.id}`, {
+        method: "DELETE",
+        token,
+      });
+      setView(v);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!token || !editTarget) return;
+    const content = editContent.trim();
+    if (!content) { alert("Nội dung không được để trống."); return; }
+    setEditBusy(true);
+    try {
+      const v = await apiFetch<ApiSellerInventoryView>(`/api/seller/inventory/item/${editTarget.id}`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ content }),
+      });
+      setView(v);
+      setEditTarget(null);
+      setEditContent("");
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <DashboardLayout variant="seller" groups={sellerNav} title="Kho auto-delivery" subtitle="Đang tải...">
@@ -117,7 +176,7 @@ export function SellerInventoryClient() {
     >
       <div className="grid gap-4 md:grid-cols-3">
         <Stat label="Có sẵn" value={String(view?.available ?? 0)} icon={<Database className="size-4" />} tone="brand" />
-        <Stat label="Đang giữ chỗ" value={String(view?.reserved ?? 0)} tone="warning" />
+        <Stat label="Tạm ẩn" value={String(view?.reserved ?? 0)} tone="warning" />
         <Stat label="Đã giao" value={String(view?.soldCount ?? 0)} tone="success" />
       </div>
 
@@ -166,6 +225,7 @@ export function SellerInventoryClient() {
                   <th className="px-4 py-3">Preview</th>
                   <th className="px-4 py-3 text-center">Trạng thái</th>
                   <th className="px-4 py-3 text-right">Tạo lúc</th>
+                  <th className="px-4 py-3 text-right">Thao tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -174,9 +234,44 @@ export function SellerInventoryClient() {
                     <td className="px-4 py-3 font-mono text-[11px] text-text-muted">{it.id.slice(0, 8)}</td>
                     <td className="px-4 py-3 font-mono text-xs text-text">{it.preview}</td>
                     <td className="px-4 py-3 text-center">
-                      {it.sold ? <Badge tone="success">Đã giao</Badge> : it.reserved ? <Badge tone="warning">Đang giữ</Badge> : <Badge tone="muted">Có sẵn</Badge>}
+                      {it.sold ? <Badge tone="success">Đã giao</Badge> : it.reserved ? <Badge tone="warning">Tạm ẩn</Badge> : <Badge tone="muted">Có sẵn</Badge>}
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-text-muted">{formatRelativeTime(it.createdAt)}</td>
+                    <td className="px-4 py-3">
+                      {it.sold ? (
+                        <span className="block text-right text-xs text-text-dim">—</span>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            disabled={busyId === it.id}
+                            onClick={() => toggleHold(it)}
+                            title={it.reserved ? "Cho hiện lại (Có sẵn)" : "Tạm ẩn (không giao)"}
+                            className="grid size-7 place-items-center rounded-md text-text-muted hover:bg-bg-elev hover:text-text disabled:opacity-50"
+                          >
+                            {busyId === it.id ? <Loader2 className="size-3.5 animate-spin" /> : it.reserved ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === it.id}
+                            onClick={() => { setEditTarget(it); setEditContent(""); }}
+                            title="Sửa nội dung"
+                            className="grid size-7 place-items-center rounded-md text-text-muted hover:bg-bg-elev hover:text-text disabled:opacity-50"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === it.id}
+                            onClick={() => removeItem(it)}
+                            title="Xoá khỏi kho"
+                            className="grid size-7 place-items-center rounded-md text-text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -184,6 +279,32 @@ export function SellerInventoryClient() {
           )}
         </section>
       </div>
+
+      {editTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-bg-card p-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-bold text-text">Sửa nội dung mục kho</h3>
+                <p className="text-xs text-text-muted">Mã {editTarget.id.slice(0, 8)} · nội dung cũ được ẩn vì lý do bảo mật. Nhập nội dung mới để thay thế.</p>
+              </div>
+              <button onClick={() => setEditTarget(null)} className="text-text-muted hover:text-text"><X className="size-4" /></button>
+            </div>
+            <textarea
+              rows={4}
+              autoFocus
+              placeholder="Nội dung mới, ví dụ: user1@mail.com|pass123"
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="mt-4 w-full rounded-lg border border-border bg-bg-elev p-3 font-mono text-xs text-text outline-none focus:border-brand"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditTarget(null)}>Huỷ</Button>
+              <Button size="sm" disabled={editBusy || !editContent.trim()} onClick={saveEdit}>{editBusy ? "Đang lưu..." : "Lưu"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }

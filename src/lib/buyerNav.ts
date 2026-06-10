@@ -4,7 +4,7 @@ export const buyerNav: NavGroup[] = [
   {
     items: [
       { href: "/account", label: "Tổng quan", icon: "dashboard" },
-      { href: "/account/orders", label: "Đơn hàng", icon: "package", badge: "2" },
+      { href: "/account/orders", label: "Đơn hàng", icon: "package" },
       { href: "/account/wallet", label: "Ví & nạp tiền", icon: "wallet" },
       { href: "/account/wishlist", label: "Yêu thích", icon: "heart" },
     ],
@@ -13,7 +13,7 @@ export const buyerNav: NavGroup[] = [
     label: "Khách hàng",
     items: [
       { href: "/account/reviews", label: "Đánh giá", icon: "star" },
-      { href: "/account/disputes", label: "Khiếu nại", icon: "alert", badge: "1" },
+      { href: "/account/disputes", label: "Khiếu nại", icon: "alert" },
       { href: "/account/chat", label: "Tin nhắn", icon: "message" },
       { href: "/account/notifications", label: "Thông báo", icon: "bell" },
     ],

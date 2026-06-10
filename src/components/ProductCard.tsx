@@ -27,22 +27,34 @@ export function ProductCard({ product, compact }: { product: Product; compact?: 
           background: `linear-gradient(135deg, ${product.thumbnailColor}40, ${product.thumbnailColor}10)`,
         }}
       >
-        <div
-          aria-hidden
-          className="absolute inset-0 bg-dots opacity-30"
-        />
-        <div className="absolute inset-0 grid place-items-center">
-          <div
-            className="grid size-20 place-items-center rounded-2xl text-3xl font-black shadow-xl"
-            style={{
-              background: product.thumbnailColor,
-              color: "white",
-              boxShadow: `0 12px 40px -10px ${product.thumbnailColor}`,
-            }}
-          >
-            {product.thumbnailIcon ?? product.title[0]}
-          </div>
-        </div>
+        {product.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={product.image}
+            alt={product.title}
+            loading="lazy"
+            className="absolute inset-0 size-full object-cover"
+          />
+        ) : (
+          <>
+            <div
+              aria-hidden
+              className="absolute inset-0 bg-dots opacity-30"
+            />
+            <div className="absolute inset-0 grid place-items-center">
+              <div
+                className="grid size-20 place-items-center rounded-2xl text-3xl font-black shadow-xl"
+                style={{
+                  background: product.thumbnailColor,
+                  color: "white",
+                  boxShadow: `0 12px 40px -10px ${product.thumbnailColor}`,
+                }}
+              >
+                {product.thumbnailIcon ?? product.title[0]}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Badges */}
         <div className="absolute left-2 top-2 flex flex-wrap gap-1">

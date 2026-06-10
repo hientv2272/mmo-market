@@ -31,14 +31,14 @@ function ConvList({
   myRole: "Buyer" | "Seller";
 }) {
   return (
-    <aside className="flex flex-col border-r border-border h-full">
+    <aside className="flex flex-col border-r border-border h-full min-h-0">
       <div className="border-b border-border px-4 py-3">
         <h3 className="text-sm font-bold text-text">Tin nhắn</h3>
         <p className="text-xs text-text-muted mt-0.5">
           {convs.length} cuộc trò chuyện
         </p>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {convs.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
             <MessageSquare className="size-8 text-text-muted mb-2" />
@@ -106,7 +106,7 @@ function MessageThread({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <button onClick={onBack} className="text-text-muted hover:text-text lg:hidden text-lg leading-none">‹</button>
@@ -121,7 +121,7 @@ function MessageThread({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <MessageSquare className="size-8 text-text-muted mb-2" />
@@ -266,12 +266,12 @@ export function ChatView({
   return (
     <div className="grid h-[calc(100vh-10rem)] max-h-[700px] overflow-hidden rounded-2xl border border-border bg-bg-card lg:grid-cols-[320px_1fr]">
       {/* Conversation list - hidden on mobile when thread is open */}
-      <div className={`${mobileView === "thread" ? "hidden lg:flex" : "flex"} flex-col`}>
+      <div className={`${mobileView === "thread" ? "hidden lg:flex" : "flex"} flex-col min-h-0`}>
         <ConvList convs={convs} activeId={active?.id ?? null} onSelect={handleSelect} myRole={myRole} />
       </div>
 
       {/* Thread - hidden on mobile when list is shown */}
-      <div className={`${mobileView === "list" ? "hidden lg:flex" : "flex"} flex-col`}>
+      <div className={`${mobileView === "list" ? "hidden lg:flex" : "flex"} flex-col min-h-0`}>
         {!active ? (
           <div className="grid flex-1 place-items-center text-center px-6">
             <div>

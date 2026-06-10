@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   CheckCircle2, ChevronRight, Crown, Gift,
@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Stat } from "@/components/ui/Stat";
 import { useAuth } from "@/lib/AuthContext";
+import { apiFetch } from "@/lib/api";
 
 // ── Tier config ──────────────────────────────────────────────────────────────
 type TierKey = "bronze" | "silver" | "gold" | "diamond";
@@ -45,26 +46,39 @@ const EARN_RULES = [
   { icon: <Zap        className="size-4" />, label: "Flash Sale",            pts: "x2 điểm",    desc: "Nhân đôi điểm cho đơn trong thời gian Flash Sale" },
 ];
 
-// ── Reward catalog ───────────────────────────────────────────────────────────
+// ── Reward catalog (tải từ API /api/loyalty/rewards) ──────────────────────────
 type Reward = {
   id: string; title: string; desc: string;
   cost: number; icon: React.ReactNode; available: boolean;
 };
 
-const REWARDS: Reward[] = [
-  { id: "r1", title: "Voucher 10.000₫",      desc: "Giảm thẳng vào đơn hàng bất kỳ",   cost: 100,  icon: <Gift className="size-5"    />, available: true  },
-  { id: "r2", title: "Voucher 50.000₫",      desc: "Áp dụng cho đơn từ 200.000₫",       cost: 500,  icon: <Gift className="size-5"    />, available: true  },
-  { id: "r3", title: "Voucher 100.000₫",     desc: "Áp dụng cho đơn từ 500.000₫",       cost: 1000, icon: <Gift className="size-5"    />, available: true  },
-  { id: "r4", title: "Miễn phí giao hàng",   desc: "Miễn phí mọi loại phí trên 1 đơn",  cost: 200,  icon: <Zap className="size-5"     />, available: true  },
-  { id: "r5", title: "Voucher 200.000₫",     desc: "Áp dụng cho đơn từ 1.000.000₫",     cost: 2000, icon: <Wallet className="size-5"  />, available: true  },
-  { id: "r6", title: "Tài khoản Premium",    desc: "1 tháng ChatGPT Plus (auto delivery)",cost: 5000, icon: <Crown className="size-5"   />, available: false },
-];
+function rewardIcon(type: string): React.ReactNode {
+  if (type === "Shipping") return <Zap className="size-5" />;
+  if (type === "Product") return <Crown className="size-5" />;
+  return <Gift className="size-5" />;
+}
 
 // ── Component ────────────────────────────────────────────────────────────────
 export function LoyaltyClient() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, token, loading: authLoading, refresh } = useAuth();
+  const [rewards, setRewards] = useState<Reward[]>([]);
   const [redeeming, setRedeeming] = useState<Reward | null>(null);
   const [redeemed, setRedeemed] = useState<Set<string>>(new Set());
+  const [redeemBusy, setRedeemBusy] = useState(false);
+  const [coupon, setCoupon] = useState<{ code: string; amount: number } | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<{ id: string; title: string; description: string; pointsCost: number; type: string; voucherAmount: number; isComingSoon: boolean }[]>(
+      "/api/loyalty/rewards",
+      { token },
+    )
+      .then((rs) => setRewards(rs.map((r) => ({
+        id: r.id, title: r.title, desc: r.description, cost: r.pointsCost,
+        icon: rewardIcon(r.type), available: !r.isComingSoon,
+      }))))
+      .catch(() => { /* không chặn trang nếu lỗi tải rewards */ });
+  }, [token]);
 
   if (authLoading) {
     return <div className="grid place-items-center py-20"><Loader2 className="size-6 animate-spin text-text-muted" /></div>;
@@ -94,10 +108,23 @@ export function LoyaltyClient() {
     setRedeeming(r);
   };
 
-  const confirmRedeem = () => {
-    if (!redeeming) return;
-    setRedeemed((prev) => new Set(prev).add(redeeming.id));
-    setRedeeming(null);
+  const confirmRedeem = async () => {
+    if (!redeeming || !token) return;
+    setRedeemBusy(true);
+    try {
+      const res = await apiFetch<{ couponCode: string; voucherAmount: number; pointsLeft: number }>(
+        `/api/loyalty/redeem/${redeeming.id}`,
+        { method: "POST", token },
+      );
+      setRedeemed((prev) => new Set(prev).add(redeeming.id));
+      setCoupon({ code: res.couponCode, amount: res.voucherAmount });
+      setRedeeming(null);
+      await refresh(); // cập nhật điểm còn lại
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Đổi điểm thất bại");
+    } finally {
+      setRedeemBusy(false);
+    }
   };
 
   return (
@@ -217,8 +244,11 @@ export function LoyaltyClient() {
           <h2 className="text-sm font-bold text-text">Đổi điểm lấy ưu đãi</h2>
           <span className="text-xs text-text-muted">Số dư: <span className="font-semibold text-warning">{pts.toLocaleString("vi")} điểm</span></span>
         </div>
+        {rewards.length === 0 && (
+          <p className="rounded-2xl border border-border bg-bg-card p-8 text-center text-sm text-text-muted">Chưa có ưu đãi nào để đổi.</p>
+        )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {REWARDS.map((r) => {
+          {rewards.map((r) => {
             const canAfford = pts >= r.cost;
             const done = redeemed.has(r.id);
             return (
@@ -295,9 +325,26 @@ export function LoyaltyClient() {
             </div>
 
             <div className="mt-5 flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setRedeeming(null)}>Hủy</Button>
-              <Button className="flex-1" onClick={confirmRedeem}>Xác nhận</Button>
+              <Button variant="outline" className="flex-1" disabled={redeemBusy} onClick={() => setRedeeming(null)}>Hủy</Button>
+              <Button className="flex-1" disabled={redeemBusy} onClick={confirmRedeem}>{redeemBusy ? "Đang đổi..." : "Xác nhận"}</Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Redeem success: show voucher code ── */}
+      {coupon && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-bg-card p-6 text-center shadow-2xl">
+            <div className="mx-auto grid size-12 place-items-center rounded-xl bg-success/10 text-success">
+              <CheckCircle2 className="size-6" />
+            </div>
+            <h2 className="mt-3 text-base font-bold text-text">Đổi điểm thành công!</h2>
+            <p className="mt-1 text-xs text-text-muted">Mã giảm {coupon.amount.toLocaleString("vi")}₫ đã được tạo. Dùng tại bước thanh toán (hết hạn sau 30 ngày).</p>
+            <div className="mt-4 rounded-xl border border-dashed border-brand/50 bg-brand/5 px-4 py-3">
+              <span className="num text-lg font-extrabold tracking-wider text-brand">{coupon.code}</span>
+            </div>
+            <Button className="mt-5 w-full" onClick={() => setCoupon(null)}>Đã hiểu</Button>
           </div>
         </div>
       )}

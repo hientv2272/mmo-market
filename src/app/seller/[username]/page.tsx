@@ -6,7 +6,7 @@ import { SiteShell } from "@/components/SiteShell";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { fetchSellers, fetchSellerByUsername } from "@/lib/serverData";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatRelativeTime } from "@/lib/format";
 
 export const revalidate = 30;
 
@@ -65,7 +65,7 @@ export default async function SellerProfilePage({
               </span>
               <span className="flex items-center gap-1">
                 <Calendar className="size-4" />
-                Tham gia 2 năm trước
+                Tham gia {formatRelativeTime(seller.joinedAt)}
               </span>
               <span className="flex items-center gap-1">
                 <Users className="size-4" />
@@ -86,8 +86,8 @@ export default async function SellerProfilePage({
           {[
             ["Sản phẩm", sellerProducts.length],
             ["Đã bán", formatNumber(seller.totalSold)],
-            ["Phản hồi", seller.responseTime],
-            ["Tỷ lệ phản hồi", "98%"],
+            ["Đánh giá", `${seller.rating.toFixed(2)}★ (${formatNumber(seller.reviewCount)})`],
+            ["Phản hồi", seller.responseTime ?? "—"],
           ].map(([k, v]) => (
             <div
               key={String(k)}

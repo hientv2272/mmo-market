@@ -4,7 +4,7 @@ export const sellerNav: NavGroup[] = [
   {
     items: [
       { href: "/seller/dashboard", label: "Tổng quan", icon: "dashboard" },
-      { href: "/seller/orders", label: "Đơn hàng", icon: "package", badge: "5" },
+      { href: "/seller/orders", label: "Đơn hàng", icon: "package" },
       { href: "/seller/products", label: "Sản phẩm", icon: "box" },
       { href: "/seller/inventory", label: "Kho auto-deliv", icon: "database" },
       { href: "/seller/reviews", label: "Đánh giá", icon: "star" },

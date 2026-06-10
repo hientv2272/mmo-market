@@ -7,9 +7,11 @@ using Microsoft.IdentityModel.Tokens;
 using MmoMarket.Api.Auth;
 using MmoMarket.Api.BackgroundJobs;
 using MmoMarket.Api.Hubs;
+using MmoMarket.Api.Json;
 using MmoMarket.Api.Middleware;
 using MmoMarket.Application;
 using MmoMarket.Application.Common;
+using MmoMarket.Application.Stats;
 using MmoMarket.Infrastructure;
 using MmoMarket.Infrastructure.Auth;
 using MmoMarket.Infrastructure.Persistence;
@@ -19,6 +21,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers().AddJsonOptions(o =>
 {
     o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    o.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
+    o.JsonSerializerOptions.Converters.Add(new UtcNullableDateTimeConverter());
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -28,6 +32,10 @@ builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddHttpClient();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddApplication();
+
+// Số liệu marketing trang chủ (nền + tăng/ngày) — cấu hình ở section "MarketingStats".
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection("MarketingStats").Get<MarketingStatsOptions>() ?? new MarketingStatsOptions());
 builder.Services.AddHostedService<OrderEscrowWorker>();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<INotificationPusher, SignalRNotificationPusher>();

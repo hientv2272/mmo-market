@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Mail, Lock, AlertCircle } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Mail, Lock, AlertCircle, Info } from "lucide-react";
 import { GoogleLogin, type CredentialResponse } from "@react-oauth/google";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/AuthContext";
 export function LoginForm() {
   const { login, loginWithGoogle } = useAuth();
   const router = useRouter();
+  const expired = useSearchParams().get("expired") === "1";
   const [email, setEmail] = useState("buyer@mmo.local");
   const [password, setPassword] = useState("Buyer@123");
   const [err, setErr] = useState<string | null>(null);
@@ -50,6 +51,12 @@ export function LoginForm() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
+      {expired && !err && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+          <Info className="mt-0.5 size-4 shrink-0" />
+          <span>Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.</span>
+        </div>
+      )}
       {err && (
         <div className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
           <AlertCircle className="mt-0.5 size-4 shrink-0" />

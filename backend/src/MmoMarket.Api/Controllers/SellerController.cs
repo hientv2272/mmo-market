@@ -65,6 +65,14 @@ public class SellerController : ControllerBase
         return Ok(new { added });
     }
 
+    [HttpPut("inventory/item/{itemId:guid}")]
+    public Task<SellerInventoryDto> UpdateInventoryItem(Guid itemId, [FromBody] InventoryItemUpdateDto dto, CancellationToken ct) =>
+        _svc.UpdateInventoryItemAsync(Uid, itemId, dto.Content, dto.Reserved, ct);
+
+    [HttpDelete("inventory/item/{itemId:guid}")]
+    public Task<SellerInventoryDto> DeleteInventoryItem(Guid itemId, CancellationToken ct) =>
+        _svc.DeleteInventoryItemAsync(Uid, itemId, ct);
+
     [HttpGet("coupons")]
     public Task<SellerCouponDto[]> Coupons(CancellationToken ct) => _svc.ListMyCouponsAsync(Uid, ct);
 

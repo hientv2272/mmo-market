@@ -20,12 +20,17 @@ public class CatalogService
         return categories.Select(c => new CategoryDto(c.Slug, c.Name, c.Short, c.IconKey, c.Description, c.Color, counts.GetValueOrDefault(c.Slug, 0))).ToArray();
     }
 
-    public async Task<ProductListResponse> ListAsync(string? category, string? sort, int page, int pageSize, CancellationToken ct)
+    public async Task<ProductListResponse> ListAsync(string? category, string? sort, int page, int pageSize, CancellationToken ct, string? q = null)
     {
         var now = DateTime.UtcNow;
         var query = _db.Products.Include(p => p.Seller).AsQueryable();
         if (!string.IsNullOrWhiteSpace(category) && category != "bestseller")
             query = query.Where(p => p.CategorySlug == category);
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var term = q.Trim();
+            query = query.Where(p => EF.Functions.Like(p.Title, $"%{term}%") || EF.Functions.Like(p.Description, $"%{term}%"));
+        }
 
         // Tin đang boost luôn lên đầu, sau đó tới tiêu chí sort được chọn (mặc định theo Sold).
         var ordered = query.OrderByDescending(p => p.BoostedUntil != null && p.BoostedUntil > now);
@@ -55,6 +60,7 @@ public class CatalogService
         return new ProductDetailDto(
             p.Id, p.Slug, p.Title, p.CategorySlug, p.Price, p.ComparePrice, p.Delivery.ToString(),
             p.WarrantyDays, p.Stock, p.Sold, p.Rating, p.ReviewCount, p.ThumbnailColor, p.ThumbnailIcon,
+            p.ImageUrl,
             DeserializeArr(p.BadgesJson),
             p.Description,
             DeserializeArr(p.FeaturesJson),
@@ -63,6 +69,17 @@ public class CatalogService
             seller,
             p.Reviews.OrderByDescending(r => r.CreatedAt).Select(r => new ReviewDto(
                 r.Id, r.User?.DisplayName ?? "User", r.Rating, r.Comment, r.CreatedAt, r.Reply)).ToArray());
+    }
+
+    /// <summary>Flash sale đang chạy (now nằm trong khoảng StartsAt..EndsAt), gần kết thúc nhất.</summary>
+    public async Task<ActiveFlashSaleDto?> GetActiveFlashSaleAsync(CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var sale = await _db.FlashSales
+            .Where(f => f.StartsAt <= now && f.EndsAt > now)
+            .OrderBy(f => f.EndsAt)
+            .FirstOrDefaultAsync(ct);
+        return sale == null ? null : new ActiveFlashSaleDto(sale.Id, sale.Title, sale.DiscountPercent, sale.StartsAt, sale.EndsAt);
     }
 
     public async Task<SellerSummaryDto[]> GetSellersAsync(CancellationToken ct)
@@ -88,13 +105,14 @@ public class CatalogService
         return new(
             p.Id, p.Slug, p.Title, p.CategorySlug, p.Price, p.ComparePrice,
             p.Delivery.ToString(), p.WarrantyDays, p.Stock, p.Sold, p.Rating, p.ReviewCount,
-            p.ThumbnailColor, p.ThumbnailIcon, badges, MapSeller(p.Seller!));
+            p.ThumbnailColor, p.ThumbnailIcon, p.ImageUrl, badges, MapSeller(p.Seller!));
     }
 
     public static SellerSummaryDto MapSeller(Seller s) => new(
         s.Id, s.Username, s.DisplayName, s.AvatarColor, s.Rating, s.ReviewCount,
         s.TotalSold, s.Badge, s.User?.KycStatus.ToString() ?? "None", s.TrustScore,
-        s.TrustBadgeUntil.HasValue && s.TrustBadgeUntil.Value > DateTime.UtcNow);
+        s.TrustBadgeUntil.HasValue && s.TrustBadgeUntil.Value > DateTime.UtcNow,
+        s.JoinedAt, s.ResponseTime);
 
     public static string[] DeserializeArr(string json)
     {

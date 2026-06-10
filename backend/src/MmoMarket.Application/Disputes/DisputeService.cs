@@ -45,6 +45,7 @@ public class DisputeService
         }
 
         var sellerId = order.Lines.FirstOrDefault()?.SellerId ?? Guid.Empty;
+        var slaHours = await _config.GetIntAsync(ConfigKeys.DisputeSlaHours, 72, ct);
         var dispute = new Dispute
         {
             Code = "DSP-" + DateTime.UtcNow.Ticks.ToString()[^7..],
@@ -54,7 +55,7 @@ public class DisputeService
             Title = dto.Title,
             Body = dto.Body,
             Status = DisputeStatus.Open,
-            SlaUntil = DateTime.UtcNow.AddDays(3),
+            SlaUntil = DateTime.UtcNow.AddHours(slaHours),
         };
         _db.Disputes.Add(dispute);
         order.Status = OrderStatus.Disputed;

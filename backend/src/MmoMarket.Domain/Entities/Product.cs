@@ -21,6 +21,8 @@ public class Product : Entity
     public int ReviewCount { get; set; }
     public string ThumbnailColor { get; set; } = "#7c3aed";
     public string? ThumbnailIcon { get; set; }
+    /// <summary>Ảnh đại diện duy nhất của sản phẩm (data URL base64 hoặc URL ngoài). Null = dùng icon/màu fallback.</summary>
+    public string? ImageUrl { get; set; }
     public string Description { get; set; } = "";
     public string FeaturesJson { get; set; } = "[]";
     public string PoliciesJson { get; set; } = "[]";

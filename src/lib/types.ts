@@ -66,6 +66,7 @@ export interface Product {
   category: CategorySlug;
   thumbnailColor: string;
   thumbnailIcon?: string;
+  image?: string; // ảnh đại diện duy nhất (data URL hoặc URL ngoài)
   images?: string[];
   price: number;
   comparePrice?: number;

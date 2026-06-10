@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { apiFetch } from "./api";
+import { apiFetch, setUnauthorizedHandler } from "./api";
 import type { ApiAuthResponse, ApiUser } from "./apiTypes";
 
 const TOKEN_KEY = "mmo_token";
@@ -32,6 +32,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (u) setUser(JSON.parse(u));
     } catch {}
     setLoading(false);
+  }, []);
+
+  // Tự động đăng xuất khi 1 request có token bị 401 (token hỏng/hết hạn).
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      try {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+      } catch {}
+      setToken(null);
+      setUser(null);
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+        window.location.href = "/login?expired=1";
+      }
+    });
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   const persist = (t: string | null, u: ApiUser | null) => {

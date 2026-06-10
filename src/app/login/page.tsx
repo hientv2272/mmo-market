@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AuthShell } from "@/components/AuthShell";
 import { LoginForm } from "./LoginForm";
 
@@ -9,7 +10,9 @@ export default function LoginPage() {
       title="Đăng nhập"
       subtitle="Chào mừng bạn quay lại MMO Market — sàn TMĐT chuyên biệt MMO."
     >
-      <LoginForm />
+      <Suspense fallback={null}>
+        <LoginForm />
+      </Suspense>
     </AuthShell>
   );
 }

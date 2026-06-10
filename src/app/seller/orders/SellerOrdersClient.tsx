@@ -53,9 +53,10 @@ function StatusBadge({ status }: { status: string }) {
 
 // ── Deliver Modal ─────────────────────────────────────────────────────────────
 function DeliverModal({
-  line, onClose, onDelivered,
+  line, remaining, onClose, onDelivered,
 }: {
   line: ApiSellerOrderLine;
+  remaining: number;
   onClose: () => void;
   onDelivered: (updated: ApiSellerOrderLine) => void;
 }) {
@@ -63,6 +64,8 @@ function DeliverModal({
   const [items, setItems] = useState<string[]>([""]); // each item = one account/key
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const autoDone = (line.deliveredItems?.length ?? 0);
+  const isHybrid = line.delivery === "Hybrid";
 
   function addRow() { setItems(prev => [...prev, ""]); }
   function removeRow(i: number) { setItems(prev => prev.filter((_, idx) => idx !== i)); }
@@ -76,7 +79,7 @@ function DeliverModal({
     try {
       const updated = await apiFetch<ApiSellerOrderLine>(
         `/api/seller/orders/${line.orderLineId}/deliver`,
-        { token, method: "POST", body: JSON.stringify(filled) }
+        { token, method: "POST", body: JSON.stringify({ items: filled }) }
       );
       onDelivered(updated);
       onClose();
@@ -98,8 +101,13 @@ function DeliverModal({
           </button>
         </div>
 
+        {isHybrid && autoDone > 0 && (
+          <div className="rounded-xl border border-accent/30 bg-accent/10 p-3 text-xs text-accent">
+            Đã tự động giao <strong>{autoDone}/{line.quantity}</strong> item từ kho. Chỉ cần giao tay <strong>{remaining} item</strong> còn thiếu.
+          </div>
+        )}
         <div className="rounded-xl border border-border bg-bg-elev p-3 text-xs text-text-muted">
-          Nhập tài khoản / key / link — mỗi dòng 1 item (cần đủ <strong className="text-text">{line.quantity} item</strong>).
+          Nhập tài khoản / key / link — mỗi dòng 1 item (cần đủ <strong className="text-text">{remaining} item</strong>).
         </div>
 
         <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
@@ -117,7 +125,7 @@ function DeliverModal({
           ))}
         </div>
 
-        {items.length < line.quantity * 3 && (
+        {items.length < Math.max(remaining, 1) * 3 && (
           <button type="button" onClick={addRow}
             className="text-xs text-brand hover:underline">+ Thêm dòng</button>
         )}
@@ -140,7 +148,11 @@ function DeliverModal({
 // ── Order Row ─────────────────────────────────────────────────────────────────
 function OrderRow({ order, onDeliver }: { order: ApiSellerOrderLine; onDeliver: (o: ApiSellerOrderLine) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const canDeliver = (order.status === "EscrowLocked" || order.status === "Delivering") && order.delivery !== "Auto";
+  // Hybrid: phần đã tự động giao từ kho nằm trong deliveredItems → chỉ còn thiếu mới phải giao tay.
+  const deliveredCount = order.deliveredItems?.length ?? 0;
+  const remaining = order.delivery === "Hybrid" ? Math.max(0, order.quantity - deliveredCount) : order.quantity;
+  const needsManual = order.delivery !== "Auto" && !(order.delivery === "Hybrid" && remaining === 0);
+  const canDeliver = (order.status === "EscrowLocked" || order.status === "Delivering") && needsManual;
 
   return (
     <>
@@ -364,6 +376,9 @@ export function SellerOrdersClient() {
       {delivering && (
         <DeliverModal
           line={delivering}
+          remaining={delivering.delivery === "Hybrid"
+            ? Math.max(0, delivering.quantity - (delivering.deliveredItems?.length ?? 0))
+            : delivering.quantity}
           onClose={() => setDelivering(null)}
           onDelivered={handleDelivered}
         />

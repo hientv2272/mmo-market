@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
+import { formatNumber, formatVND } from "@/lib/format";
+import type { StatsOverview } from "@/lib/serverData";
 
-export function AffiliateBanner() {
+export function AffiliateBanner({ stats }: { stats?: StatsOverview | null }) {
   return (
     <section className="mx-auto mt-12 max-w-7xl px-4">
       <div className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-r from-brand via-fuchsia-600 to-accent p-6 md:p-10">
@@ -45,9 +47,9 @@ export function AffiliateBanner() {
 
           <div className="grid grid-cols-3 gap-3 md:grid-cols-1">
             {[
-              ["Tổng hoa hồng đã trả", "3.4 tỷ"],
-              ["CTV đang hoạt động", "1.842"],
-              ["Tỷ lệ chuyển đổi", "8.2%"],
+              ["Tổng hoa hồng đã trả", stats ? formatVND(stats.affiliateTotalPaid) : "—"],
+              ["CTV đang hoạt động", stats ? formatNumber(stats.activeAffiliates) : "—"],
+              ["Thanh toán", "Theo tuần / rút bất kỳ"],
             ].map(([label, value]) => (
               <div
                 key={label}

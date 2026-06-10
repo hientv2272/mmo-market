@@ -1,13 +1,14 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Eye, Loader2, Plus, Rocket, Trash2, Upload } from "lucide-react";
+import { Eye, ImagePlus, Loader2, Plus, Rocket, Trash2, Upload, X } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { sellerNav } from "@/lib/sellerNav";
 import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
+import { fileToCompressedDataUrl } from "@/lib/imageUpload";
 import type { ApiBoostInfo, ApiCategory, ApiSellerProduct } from "@/lib/apiTypes";
 import { formatNumber, formatVND } from "@/lib/format";
 
@@ -39,7 +40,11 @@ export function SellerProductsClient() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({
+  const [imageBusy, setImageBusy] = useState(false);
+  const [rowImageBusy, setRowImageBusy] = useState<string | null>(null);
+  const rowImageInput = useRef<HTMLInputElement>(null);
+  const rowImageTarget = useRef<string | null>(null);
+  const emptyForm = {
     title: "",
     categorySlug: "ai",
     price: 100000,
@@ -49,8 +54,10 @@ export function SellerProductsClient() {
     stock: 0,
     thumbnailColor: "#7c3aed",
     thumbnailIcon: "🚀",
+    imageUrl: "",
     description: "",
-  });
+  };
+  const [form, setForm] = useState(emptyForm);
 
   const reload = async () => {
     if (!token) return;
@@ -99,17 +106,58 @@ export function SellerProductsClient() {
           stock: Number(form.stock),
           thumbnailColor: form.thumbnailColor,
           thumbnailIcon: form.thumbnailIcon,
+          imageUrl: form.imageUrl || null,
           description: form.description,
         }),
       });
       setShowForm(false);
-      setForm({ ...form, title: "", description: "" });
+      setForm(emptyForm);
       await reload();
     } catch (e) {
       alert((e as Error).message);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const onPickFormImage = async (file: File | undefined) => {
+    if (!file) return;
+    setImageBusy(true);
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      setForm((f) => ({ ...f, imageUrl: dataUrl }));
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  // Đổi ảnh đại diện cho 1 sản phẩm đã tồn tại (gọi endpoint update).
+  const onRowImageSelected = async (file: File | undefined) => {
+    const productId = rowImageTarget.current;
+    rowImageTarget.current = null;
+    if (rowImageInput.current) rowImageInput.current.value = "";
+    if (!file || !productId || !token) return;
+    setRowImageBusy(productId);
+    try {
+      const dataUrl = await fileToCompressedDataUrl(file);
+      await apiFetch<ApiSellerProduct>(`/api/seller/products/${productId}`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ imageUrl: dataUrl }),
+      });
+      await reload();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setRowImageBusy(null);
+    }
+  };
+
+  const triggerRowImage = (productId: string) => {
+    rowImageTarget.current = productId;
+    rowImageInput.current?.click();
   };
 
   const onDelete = async (id: string) => {
@@ -248,6 +296,34 @@ export function SellerProductsClient() {
               Icon (emoji 1 ký tự)
               <input maxLength={4} className="mt-1 h-9 w-full rounded-lg border border-border bg-bg-elev px-3 text-sm text-text outline-none focus:border-brand" value={form.thumbnailIcon} onChange={(e) => setForm({ ...form, thumbnailIcon: e.target.value })} />
             </label>
+            <div className="text-xs text-text-muted md:col-span-2">
+              Ảnh đại diện (1 ảnh duy nhất · tối đa 2MB)
+              <div className="mt-1 flex items-center gap-3">
+                <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-border bg-bg-elev">
+                  {form.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.imageUrl} alt="preview" className="size-full object-cover" />
+                  ) : (
+                    <span className="grid size-full place-items-center text-lg font-bold text-white" style={{ background: form.thumbnailColor }}>
+                      {form.thumbnailIcon || form.title[0] || "?"}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-bg-elev px-3 py-1.5 text-xs font-medium text-text hover:border-brand">
+                    {imageBusy ? <Loader2 className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
+                    {form.imageUrl ? "Đổi ảnh" : "Chọn ảnh"}
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => onPickFormImage(e.target.files?.[0])} />
+                  </label>
+                  {form.imageUrl && (
+                    <button type="button" onClick={() => setForm((f) => ({ ...f, imageUrl: "" }))} className="inline-flex w-fit items-center gap-1 text-xs text-danger hover:underline">
+                      <X className="size-3.5" /> Gỡ ảnh
+                    </button>
+                  )}
+                  <span className="text-[11px] text-text-dim">Không bắt buộc. Bỏ trống sẽ dùng icon &amp; màu.</span>
+                </div>
+              </div>
+            </div>
             <label className="text-xs text-text-muted md:col-span-2">
               Mô tả
               <textarea rows={3} className="mt-1 w-full rounded-lg border border-border bg-bg-elev px-3 py-2 text-sm text-text outline-none focus:border-brand" required value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
@@ -298,12 +374,24 @@ export function SellerProductsClient() {
                 <tr key={p.id} className="hover:bg-bg-elev/30">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="grid size-10 shrink-0 place-items-center rounded-lg text-sm font-bold text-white"
+                      <button
+                        type="button"
+                        onClick={() => triggerRowImage(p.id)}
+                        disabled={rowImageBusy === p.id}
+                        title="Đổi ảnh đại diện"
+                        className="group/img relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg text-sm font-bold text-white"
                         style={{ background: p.thumbnailColor }}
                       >
-                        {p.thumbnailIcon ?? p.title[0]}
-                      </div>
+                        {p.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.imageUrl} alt={p.title} className="size-full object-cover" />
+                        ) : (
+                          <span>{p.thumbnailIcon ?? p.title[0]}</span>
+                        )}
+                        <span className="absolute inset-0 grid place-items-center bg-black/50 opacity-0 transition group-hover/img:opacity-100">
+                          {rowImageBusy === p.id ? <Loader2 className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
+                        </span>
+                      </button>
                       <div className="min-w-0">
                         <div className="line-clamp-1 max-w-xs font-medium text-text">{p.title}</div>
                         <div className="text-xs text-text-muted">
@@ -355,6 +443,15 @@ export function SellerProductsClient() {
           </table>
         )}
       </div>
+
+      {/* Input ẩn dùng chung để đổi ảnh đại diện cho sản phẩm trong bảng */}
+      <input
+        ref={rowImageInput}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => onRowImageSelected(e.target.files?.[0])}
+      />
     </DashboardLayout>
   );
 }

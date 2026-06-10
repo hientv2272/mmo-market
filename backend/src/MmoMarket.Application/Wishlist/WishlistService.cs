@@ -7,7 +7,7 @@ namespace MmoMarket.Application.Wishlist;
 public record WishlistProductDto(
     Guid Id, string Slug, string Title, string CategorySlug,
     decimal Price, decimal? ComparePrice,
-    string ThumbnailColor, string? ThumbnailIcon,
+    string ThumbnailColor, string? ThumbnailIcon, string? ImageUrl,
     double Rating, int ReviewCount, int Sold,
     string Delivery, int WarrantyDays,
     string SellerUsername, string SellerAvatarColor,
@@ -33,7 +33,7 @@ public class WishlistService
             return new WishlistProductDto(
                 p.Id, p.Slug, p.Title, p.CategorySlug,
                 p.Price, p.ComparePrice,
-                p.ThumbnailColor, p.ThumbnailIcon,
+                p.ThumbnailColor, p.ThumbnailIcon, p.ImageUrl,
                 p.Rating, p.ReviewCount, p.Sold,
                 p.Delivery.ToString(), p.WarrantyDays,
                 seller?.Username ?? "", seller?.User?.AvatarColor ?? "#7c3aed",

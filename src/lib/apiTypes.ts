@@ -19,6 +19,8 @@ export type ApiSellerSummary = {
   badge?: string | null;
   kycStatus: string;
   trustScore: number;
+  joinedAt: string;
+  responseTime?: string | null;
 };
 
 export type ApiProductListItem = {
@@ -36,6 +38,7 @@ export type ApiProductListItem = {
   reviewCount: number;
   thumbnailColor: string;
   thumbnailIcon?: string | null;
+  imageUrl?: string | null;
   badges: string[];
   seller: ApiSellerSummary;
 };
@@ -196,6 +199,7 @@ export type ApiSellerProduct = {
   reviewCount: number;
   thumbnailColor: string;
   thumbnailIcon?: string | null;
+  imageUrl?: string | null;
   status: string;
   description: string;
   inventoryAvailable: number;
@@ -451,6 +455,7 @@ export type ApiOwnReview = {
   comment: string;
   createdAt: string;
   reply?: string | null;
+  orderId?: string | null;
 };
 
 export type ApiAdminWalletUser = {
@@ -513,6 +518,7 @@ export type ApiWishlistItem = {
   comparePrice?: number | null;
   thumbnailColor: string;
   thumbnailIcon?: string | null;
+  imageUrl?: string | null;
   rating: number;
   reviewCount: number;
   sold: number;

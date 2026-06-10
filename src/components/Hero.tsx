@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { ArrowRight, ShieldCheck, Zap, Headset } from "lucide-react";
+import { formatNumber, formatVND } from "@/lib/format";
+import type { StatsOverview } from "@/lib/serverData";
 
-export function Hero() {
+export function Hero({ stats }: { stats?: StatsOverview | null }) {
   return (
     <section className="relative mx-auto max-w-7xl px-4 pt-10">
       <div className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-bg-card via-bg-card to-bg-elev p-8 md:p-12">
@@ -22,7 +24,7 @@ export function Hero() {
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-bg-card px-3 py-1 text-xs text-text-muted">
               <span className="size-1.5 rounded-full bg-success" />
-              Đang có 10.842 sản phẩm số sẵn giao tự động
+              {stats ? `Đang có ${formatNumber(stats.totalProducts)} sản phẩm số đang bán` : "Sản phẩm số giao tự động 24/7"}
             </div>
             <h1 className="mt-4 text-3xl font-extrabold leading-tight tracking-tight text-text md:text-5xl">
               Sàn TMĐT chuyên biệt cho cộng đồng{" "}
@@ -91,16 +93,16 @@ export function Hero() {
                 GMV 30 ngày
               </div>
               <div className="num mt-2 text-2xl font-bold text-text">
-                ₫24,8 tỷ
+                {stats ? formatVND(stats.gmv30d) : "—"}
               </div>
-              <div className="mt-1 text-xs text-success">+18.4% so với tháng trước</div>
+              <div className="mt-1 text-xs text-text-muted">{stats ? `${formatNumber(stats.orders30d)} đơn hoàn tất` : "Cập nhật theo thời gian thực"}</div>
             </div>
             <div className="card-glow rounded-2xl bg-bg-card/80 p-5 backdrop-blur">
               <div className="text-xs uppercase tracking-wider text-text-muted">
-                Đơn auto-delivery
+                Đơn đã hoàn tất
               </div>
-              <div className="num mt-2 text-2xl font-bold text-text">128.402</div>
-              <div className="mt-1 text-xs text-text-muted">Trong 30 ngày</div>
+              <div className="num mt-2 text-2xl font-bold text-text">{stats ? formatNumber(stats.totalCompletedOrders) : "—"}</div>
+              <div className="mt-1 text-xs text-text-muted">Tổng giao dịch thành công</div>
             </div>
             <div className="card-glow col-span-2 rounded-2xl bg-bg-card/80 p-5 backdrop-blur">
               <div className="text-xs uppercase tracking-wider text-text-muted">
@@ -108,19 +110,16 @@ export function Hero() {
               </div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 {[
-                  ["AI Accounts", "+34%", "from-violet-500 to-fuchsia-500"],
-                  ["Tool MMO", "+22%", "from-cyan-500 to-blue-500"],
-                  ["Khoá học", "+15%", "from-emerald-500 to-teal-500"],
-                  ["Gift Card", "+11%", "from-pink-500 to-rose-500"],
-                ].map(([name, delta, grad]) => (
+                  ["AI Accounts", "from-violet-500 to-fuchsia-500"],
+                  ["Tool MMO", "from-cyan-500 to-blue-500"],
+                  ["Khoá học", "from-emerald-500 to-teal-500"],
+                  ["Gift Card", "from-pink-500 to-rose-500"],
+                ].map(([name, grad]) => (
                   <span
                     key={name}
                     className={`inline-flex items-center gap-2 rounded-full bg-gradient-to-r ${grad} px-3 py-1.5 font-medium text-white shadow`}
                   >
                     {name}
-                    <span className="rounded-full bg-black/20 px-1.5 py-0.5 text-[10px]">
-                      {delta}
-                    </span>
                   </span>
                 ))}
               </div>
@@ -130,11 +129,11 @@ export function Hero() {
                   <div className="text-text-muted">Uptime SLA</div>
                 </div>
                 <div className="rounded-lg bg-bg-elev p-3">
-                  <div className="num text-lg font-bold text-text">4.86★</div>
+                  <div className="num text-lg font-bold text-text">{stats && stats.avgRating > 0 ? `${stats.avgRating}★` : "—"}</div>
                   <div className="text-text-muted">Avg rating</div>
                 </div>
                 <div className="rounded-lg bg-bg-elev p-3">
-                  <div className="num text-lg font-bold text-text">7K+</div>
+                  <div className="num text-lg font-bold text-text">{stats ? formatNumber(stats.totalSellers) : "—"}</div>
                   <div className="text-text-muted">Sellers</div>
                 </div>
               </div>

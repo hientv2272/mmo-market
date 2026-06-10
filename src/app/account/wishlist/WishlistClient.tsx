@@ -113,15 +113,22 @@ export function WishlistClient() {
                   className="relative aspect-[5/4] overflow-hidden"
                   style={{ background: `linear-gradient(135deg, ${item.thumbnailColor}40, ${item.thumbnailColor}10)` }}
                 >
-                  <div aria-hidden className="absolute inset-0 bg-dots opacity-30" />
-                  <div className="absolute inset-0 grid place-items-center">
-                    <div
-                      className="grid size-20 place-items-center rounded-2xl text-3xl font-black shadow-xl"
-                      style={{ background: item.thumbnailColor, color: "white", boxShadow: `0 12px 40px -10px ${item.thumbnailColor}` }}
-                    >
-                      {item.thumbnailIcon ?? item.title[0]}
-                    </div>
-                  </div>
+                  {item.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.imageUrl} alt={item.title} loading="lazy" className="absolute inset-0 size-full object-cover" />
+                  ) : (
+                    <>
+                      <div aria-hidden className="absolute inset-0 bg-dots opacity-30" />
+                      <div className="absolute inset-0 grid place-items-center">
+                        <div
+                          className="grid size-20 place-items-center rounded-2xl text-3xl font-black shadow-xl"
+                          style={{ background: item.thumbnailColor, color: "white", boxShadow: `0 12px 40px -10px ${item.thumbnailColor}` }}
+                        >
+                          {item.thumbnailIcon ?? item.title[0]}
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {/* Badges */}
                   <div className="absolute left-2 top-2 flex flex-wrap gap-1">
