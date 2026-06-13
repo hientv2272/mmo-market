@@ -1,5 +1,7 @@
 using MmoMarket.Application.Orders;
+using MmoMarket.Application.Payments;
 using MmoMarket.Application.Sellers;
+using MmoMarket.Application.Wallet;
 
 namespace MmoMarket.Api.BackgroundJobs;
 
@@ -33,11 +35,16 @@ public class OrderEscrowWorker : BackgroundService
                 using var scope = _scopeFactory.CreateScope();
                 var orders = scope.ServiceProvider.GetRequiredService<OrderService>();
                 var trust = scope.ServiceProvider.GetRequiredService<TrustScoreService>();
+                var topup = scope.ServiceProvider.GetRequiredService<WalletTopupService>();
+                var sepay = scope.ServiceProvider.GetRequiredService<SePayPgService>();
                 var released = await orders.AutoReleaseEscrowAsync(stoppingToken);
                 var cancelled = await orders.AutoCancelStaleAsync(stoppingToken);
                 var bonused = await trust.Award30dCleanBonusAsync(stoppingToken);
-                if (released > 0 || cancelled > 0 || bonused > 0)
-                    _logger.LogInformation("OrderEscrowWorker: giải ngân {Released} đơn, hủy {Cancelled} đơn, +trust {Bonused} seller", released, cancelled, bonused);
+                var topupsExpired = await topup.ExpireStalePendingAsync(stoppingToken);
+                var ordersPaid = await orders.ReconcilePendingSePayAsync(sepay, null, stoppingToken);
+                var ordersExpired = await orders.CancelStalePendingPaymentAsync(stoppingToken);
+                if (released > 0 || cancelled > 0 || bonused > 0 || topupsExpired > 0 || ordersPaid > 0 || ordersExpired > 0)
+                    _logger.LogInformation("OrderEscrowWorker: giải ngân {Released}, hủy {Cancelled}, +trust {Bonused}, nạp quá hạn {Topups}, đơn SePay xác nhận {OrdersPaid}, đơn quá hạn TT huỷ {OrdersExpired}", released, cancelled, bonused, topupsExpired, ordersPaid, ordersExpired);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)

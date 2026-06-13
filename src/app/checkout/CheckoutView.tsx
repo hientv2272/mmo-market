@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/Button";
 import { MoMoPayModal } from "@/components/MoMoPayModal";
 import { ZaloPayModal } from "@/components/ZaloPayModal";
 import { VNPayModal } from "@/components/VNPayModal";
-import { VietQrModal } from "@/components/VietQrModal";
+import { SePayCheckoutModal } from "@/components/SePayCheckoutModal";
 import { UsdtPayModal } from "@/components/UsdtPayModal";
 import { TotpVerifyModal } from "@/components/TotpVerifyModal";
 import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
-import type { ApiCart, ApiMoMoPayResult, ApiOrder, ApiUsdtPayResult, ApiValidateResult, ApiVietQrResult, ApiVNPayResult, ApiZaloPayResult } from "@/lib/apiTypes";
+import type { ApiCart, ApiMoMoPayResult, ApiOrder, ApiSePayCheckout, ApiUsdtPayResult, ApiValidateResult, ApiVNPayResult, ApiZaloPayResult } from "@/lib/apiTypes";
 import { formatVND } from "@/lib/format";
 
 type PaymentMethodOption = {
@@ -49,7 +49,7 @@ export function CheckoutView() {
   const [momoModal, setMomoModal] = useState<{ order: ApiOrder; result: ApiMoMoPayResult } | null>(null);
   const [zaloModal, setZaloModal] = useState<{ order: ApiOrder; result: ApiZaloPayResult } | null>(null);
   const [vnpayModal, setVnpayModal] = useState<{ order: ApiOrder; result: ApiVNPayResult } | null>(null);
-  const [vietqrModal, setVietqrModal] = useState<{ order: ApiOrder; result: ApiVietQrResult } | null>(null);
+  const [vietqrModal, setVietqrModal] = useState<{ order: ApiOrder; checkout: ApiSePayCheckout } | null>(null);
   const [usdtModal, setUsdtModal] = useState<{ order: ApiOrder; result: ApiUsdtPayResult } | null>(null);
   const [totpModal, setTotpModal] = useState(false);
   const [totpErr, setTotpErr] = useState<string | null>(null);
@@ -123,12 +123,12 @@ export function CheckoutView() {
         await refresh();
         setUsdtModal({ order, result: usdtResult });
       } else if (method === "VietQr") {
-        const vietqrResult = await apiFetch<ApiVietQrResult>(`/api/orders/${order.id}/vietqr-pay`, {
+        const checkout = await apiFetch<ApiSePayCheckout>(`/api/orders/${order.id}/vietqr-pay`, {
           method: "POST",
           token,
         });
         await refresh();
-        setVietqrModal({ order, result: vietqrResult });
+        setVietqrModal({ order, checkout });
       } else if (method === "Momo") {
         const momoResult = await apiFetch<ApiMoMoPayResult>(`/api/orders/${order.id}/momo-pay`, {
           method: "POST",
@@ -223,12 +223,14 @@ export function CheckoutView() {
       />
     )}
     {vietqrModal && token && (
-      <VietQrModal
-        orderId={vietqrModal.order.id}
-        orderCode={vietqrModal.order.code}
+      <SePayCheckoutModal
+        code={vietqrModal.order.code}
         total={vietqrModal.order.total}
-        vietqrResult={vietqrModal.result}
+        checkout={vietqrModal.checkout}
+        checkUrl={`/api/orders/${vietqrModal.order.id}/sepay-check`}
         token={token}
+        subjectLabel="Đơn hàng"
+        successText="Đang chuyển đến đơn hàng…"
         onSuccess={() => {
           setVietqrModal(null);
           router.push(`/account/orders?just=${vietqrModal.order.id}`);

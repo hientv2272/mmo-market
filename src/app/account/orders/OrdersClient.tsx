@@ -4,9 +4,23 @@ import Link from "next/link";
 import { AlertTriangle, Star, Loader2, CheckCircle2, X } from "lucide-react";
 import { OrderStatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { SePayCheckoutModal } from "@/components/SePayCheckoutModal";
+import { MoMoPayModal } from "@/components/MoMoPayModal";
+import { ZaloPayModal } from "@/components/ZaloPayModal";
+import { VNPayModal } from "@/components/VNPayModal";
+import { UsdtPayModal } from "@/components/UsdtPayModal";
 import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
-import type { ApiOrder, ApiOrderLine, ApiOwnReview } from "@/lib/apiTypes";
+import type {
+  ApiMoMoPayResult,
+  ApiOrder,
+  ApiOrderLine,
+  ApiOwnReview,
+  ApiSePayCheckout,
+  ApiUsdtPayResult,
+  ApiVNPayResult,
+  ApiZaloPayResult,
+} from "@/lib/apiTypes";
 import type { OrderStatus } from "@/lib/types";
 import { formatRelativeTime, formatVND } from "@/lib/format";
 
@@ -46,6 +60,11 @@ export function OrdersClient() {
   const [disputeForm, setDisputeForm] = useState({ title: "", body: "" });
   const [modalBusy, setModalBusy] = useState(false);
   const [reviewed, setReviewed] = useState<Set<string>>(new Set()); // `${orderId}:${productId}`
+  const [sepayModal, setSepayModal] = useState<{ order: ApiOrder; checkout: ApiSePayCheckout } | null>(null);
+  const [momoModal, setMomoModal] = useState<{ order: ApiOrder; result: ApiMoMoPayResult } | null>(null);
+  const [zaloModal, setZaloModal] = useState<{ order: ApiOrder; result: ApiZaloPayResult } | null>(null);
+  const [vnpayModal, setVnpayModal] = useState<{ order: ApiOrder; result: ApiVNPayResult } | null>(null);
+  const [usdtModal, setUsdtModal] = useState<{ order: ApiOrder; result: ApiUsdtPayResult } | null>(null);
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -61,6 +80,25 @@ export function OrdersClient() {
   }, [token, tab]);
 
   useEffect(() => { if (!authLoading) reload(); }, [authLoading, reload]);
+
+  // Đối soát các đơn VietQR/SePay đang chờ thanh toán với cổng (không phụ thuộc modal checkout).
+  const reconcile = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiFetch<ApiOrder[]>(`/api/orders/reconcile${tab ? `?status=${tab}` : ""}`, { method: "POST", token });
+      setOrders(data);
+    } catch { /* bỏ qua lỗi tạm thời */ }
+  }, [token, tab]);
+
+  const hasPendingPayment = orders.some((o) => o.status === "PendingPayment");
+
+  // Còn đơn chờ thanh toán → tự đối soát ngay và lặp lại mỗi 8s đến khi xong.
+  useEffect(() => {
+    if (!token || !hasPendingPayment) return;
+    const kick = setTimeout(reconcile, 600);
+    const id = setInterval(reconcile, 8000);
+    return () => { clearTimeout(kick); clearInterval(id); };
+  }, [token, hasPendingPayment, reconcile]);
 
   useEffect(() => {
     if (!token) return;
@@ -83,18 +121,45 @@ export function OrdersClient() {
     }
   };
 
-  const pay = async (id: string) => {
+  // "Thanh toán ngay" — mở lại đúng cổng thanh toán của đơn (không cộng-tiền-mock như trước).
+  const startRepay = async (o: ApiOrder) => {
     if (!token) return;
-    setBusy(id);
+    setBusy(o.id);
+    setErr(null);
     try {
-      await apiFetch(`/api/orders/${id}/pay`, { method: "POST", token });
-      await refresh();
-      await reload();
+      if (o.paymentMethod === "VietQr") {
+        const checkout = await apiFetch<ApiSePayCheckout>(`/api/orders/${o.id}/vietqr-pay`, { method: "POST", token });
+        setSepayModal({ order: o, checkout });
+      } else if (o.paymentMethod === "Momo") {
+        const result = await apiFetch<ApiMoMoPayResult>(`/api/orders/${o.id}/momo-pay`, { method: "POST", token });
+        setMomoModal({ order: o, result });
+      } else if (o.paymentMethod === "ZaloPay") {
+        const result = await apiFetch<ApiZaloPayResult>(`/api/orders/${o.id}/zalopay-pay`, { method: "POST", token });
+        setZaloModal({ order: o, result });
+      } else if (o.paymentMethod === "VnPay") {
+        const result = await apiFetch<ApiVNPayResult>(`/api/orders/${o.id}/vnpay-pay`, { method: "POST", token });
+        setVnpayModal({ order: o, result });
+      } else if (o.paymentMethod === "Usdt") {
+        const result = await apiFetch<ApiUsdtPayResult>(`/api/orders/${o.id}/usdt-pay`, { method: "POST", token });
+        setUsdtModal({ order: o, result });
+      } else {
+        setErr("Phương thức thanh toán không hỗ trợ thanh toán lại.");
+      }
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi");
+      setErr(e instanceof Error ? e.message : "Lỗi thanh toán");
     } finally {
       setBusy(null);
     }
+  };
+
+  const onPaid = async () => {
+    setSepayModal(null); setMomoModal(null); setZaloModal(null); setVnpayModal(null); setUsdtModal(null);
+    await refresh();
+    await reload();
+  };
+  const onClosePay = async () => {
+    setSepayModal(null); setMomoModal(null); setZaloModal(null); setVnpayModal(null); setUsdtModal(null);
+    await reconcile();
   };
 
   const submitReview = async () => {
@@ -158,6 +223,35 @@ export function OrdersClient() {
 
   return (
     <div className="rounded-2xl border border-border bg-bg-card">
+      {sepayModal && token && (
+        <SePayCheckoutModal
+          code={sepayModal.order.code}
+          total={sepayModal.order.total}
+          checkout={sepayModal.checkout}
+          checkUrl={`/api/orders/${sepayModal.order.id}/sepay-check`}
+          token={token}
+          subjectLabel="Đơn hàng"
+          successText="Đang cập nhật đơn hàng…"
+          onSuccess={onPaid}
+          onCancel={onClosePay}
+        />
+      )}
+      {momoModal && token && (
+        <MoMoPayModal orderId={momoModal.order.id} orderCode={momoModal.order.code} total={momoModal.order.total}
+          momoResult={momoModal.result} token={token} onSuccess={onPaid} onCancel={onClosePay} />
+      )}
+      {zaloModal && token && (
+        <ZaloPayModal orderId={zaloModal.order.id} orderCode={zaloModal.order.code} total={zaloModal.order.total}
+          zaloResult={zaloModal.result} token={token} onSuccess={onPaid} onCancel={onClosePay} />
+      )}
+      {vnpayModal && token && (
+        <VNPayModal orderId={vnpayModal.order.id} orderCode={vnpayModal.order.code} total={vnpayModal.order.total}
+          vnpayResult={vnpayModal.result} token={token} onSuccess={onPaid} onCancel={onClosePay} />
+      )}
+      {usdtModal && token && (
+        <UsdtPayModal orderId={usdtModal.order.id} orderCode={usdtModal.order.code} total={usdtModal.order.total}
+          usdtResult={usdtModal.result} token={token} onSuccess={onPaid} onCancel={onClosePay} />
+      )}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-2 py-2 text-sm">
         {tabs.map((t) => (
           <button
@@ -226,7 +320,7 @@ export function OrdersClient() {
                         </Button>
                       )}
                       {o.status === "PendingPayment" && (
-                        <Button size="sm" disabled={busy === o.id} onClick={() => pay(o.id)}>
+                        <Button size="sm" disabled={busy === o.id} onClick={() => startRepay(o)}>
                           {busy === o.id ? "Đang xử lý..." : "Thanh toán ngay"}
                         </Button>
                       )}

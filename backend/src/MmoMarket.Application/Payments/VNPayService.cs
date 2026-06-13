@@ -13,6 +13,7 @@ public class VNPayService
     private readonly string _hashSecret;
     private readonly string _paymentBaseUrl;
     private readonly string _returnUrl;
+    private readonly string _returnUrlWallet;
     private readonly string _ipnUrl;
 
     public VNPayService(IConfiguration config)
@@ -22,10 +23,14 @@ public class VNPayService
         _hashSecret  = s["HashSecret"]  ?? "";
         _paymentBaseUrl = s["PaymentUrl"] ?? "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html";
         _returnUrl   = s["ReturnUrl"]   ?? "http://localhost:3000/account/orders";
+        _returnUrlWallet = s["ReturnUrlWallet"] ?? _returnUrl.Replace("/account/orders", "/account/wallet");
         _ipnUrl      = s["IpnUrl"]      ?? "https://localhost/api/payment/vnpay/ipn";
     }
 
-    public VNPayResult CreatePaymentUrl(Guid orderId, decimal amount, string orderCode, string ipAddress)
+    // Trang redirect sau thanh toán dành cho nạp ví (khác trang đơn hàng).
+    public string WalletReturnUrl => _returnUrlWallet;
+
+    public VNPayResult CreatePaymentUrl(Guid orderId, decimal amount, string orderCode, string ipAddress, string? returnUrl = null)
     {
         // VNPay requires Vietnam time (UTC+7)
         var vnNow = DateTime.UtcNow.AddHours(7);
@@ -47,7 +52,7 @@ public class VNPayService
             ["vnp_OrderInfo"]  = orderInfo,
             ["vnp_OrderType"]  = "other",
             ["vnp_Locale"]     = "vn",
-            ["vnp_ReturnUrl"]  = _returnUrl,
+            ["vnp_ReturnUrl"]  = returnUrl ?? _returnUrl,
             ["vnp_IpAddr"]     = ipAddress,
             ["vnp_CreateDate"] = createDate,
             ["vnp_ExpireDate"] = expireDate,

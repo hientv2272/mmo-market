@@ -33,6 +33,7 @@ public class MoMoService
     private readonly string _secretKey;
     private readonly string _apiEndpoint;
     private readonly string _returnUrl;
+    private readonly string _returnUrlWallet;
     private readonly string _ipnUrl;
 
     public MoMoService(IConfiguration config)
@@ -43,11 +44,16 @@ public class MoMoService
         _secretKey = s["SecretKey"] ?? "";
         _apiEndpoint = s["ApiEndpoint"] ?? "https://test-payment.momo.vn/v2/gateway/api/create";
         _returnUrl = s["ReturnUrl"] ?? "http://localhost:3000/account/orders";
+        _returnUrlWallet = s["ReturnUrlWallet"] ?? _returnUrl.Replace("/account/orders", "/account/wallet");
         _ipnUrl = s["IpnUrl"] ?? "https://localhost/api/payment/momo/ipn";
     }
 
-    public async Task<MoMoPayResult> CreatePaymentAsync(Guid orderId, decimal amount, string orderCode)
+    // Trang redirect sau thanh toán dành cho nạp ví (khác trang đơn hàng).
+    public string WalletReturnUrl => _returnUrlWallet;
+
+    public async Task<MoMoPayResult> CreatePaymentAsync(Guid orderId, decimal amount, string orderCode, string? returnUrl = null)
     {
+        var redirectUrl = returnUrl ?? _returnUrl;
         var requestId = Guid.NewGuid().ToString();
         var amountLong = (long)Math.Round(amount);
         var orderInfo = $"Thanh toán đơn hàng {orderCode}";
@@ -57,7 +63,7 @@ public class MoMoService
         // Signature fields must be in alphabetical order
         var rawSig = $"accessKey={_accessKey}&amount={amountLong}&extraData={extraData}" +
                      $"&ipnUrl={_ipnUrl}&orderId={orderId}&orderInfo={orderInfo}" +
-                     $"&partnerCode={_partnerCode}&redirectUrl={_returnUrl}" +
+                     $"&partnerCode={_partnerCode}&redirectUrl={redirectUrl}" +
                      $"&requestId={requestId}&requestType={requestType}";
         var signature = HmacSha256(rawSig);
 
@@ -66,7 +72,7 @@ public class MoMoService
             partnerCode = _partnerCode,
             requestType,
             ipnUrl = _ipnUrl,
-            redirectUrl = _returnUrl,
+            redirectUrl,
             orderId = orderId.ToString(),
             amount = amountLong,
             orderInfo,

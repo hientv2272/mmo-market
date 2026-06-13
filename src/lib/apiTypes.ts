@@ -148,12 +148,10 @@ export type ApiVNPayResult = {
   paymentUrl: string;
 };
 
-export type ApiVietQrResult = {
-  qrImageUrl: string;
-  bankId: string;
-  accountNo: string;
-  accountName: string;
-  transferNote: string;
+// Cổng thanh toán SePay: client tự dựng form ẩn rồi submit sang actionUrl.
+export type ApiSePayCheckout = {
+  actionUrl: string;
+  fields: Record<string, string>;
 };
 
 export type ApiUsdtPayResult = {
@@ -182,6 +180,14 @@ export type ApiWalletState = {
   heldBalance: number;
   loyaltyPoints: number;
   transactions: ApiWalletTxn[];
+};
+
+export type ApiTopupIntent = {
+  id: string;
+  code: string;
+  amount: number;
+  method: string;
+  status: string;
 };
 
 export type ApiSellerProduct = {

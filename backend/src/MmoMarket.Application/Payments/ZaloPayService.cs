@@ -18,6 +18,7 @@ public class ZaloPayService
     private readonly string _key2;    // verify IPN callbacks
     private readonly string _apiEndpoint;
     private readonly string _returnUrl;
+    private readonly string _returnUrlWallet;
     private readonly string _ipnUrl;
 
     public ZaloPayService(IConfiguration config)
@@ -28,10 +29,14 @@ public class ZaloPayService
         _key2 = s["Key2"] ?? "";
         _apiEndpoint = s["ApiEndpoint"] ?? "https://sb-openapi.zalopay.vn/v2/create";
         _returnUrl = s["ReturnUrl"] ?? "http://localhost:3000/account/orders";
+        _returnUrlWallet = s["ReturnUrlWallet"] ?? _returnUrl.Replace("/account/orders", "/account/wallet");
         _ipnUrl = s["IpnUrl"] ?? "https://localhost/api/payment/zalopay/ipn";
     }
 
-    public async Task<ZaloPayResult> CreatePaymentAsync(Guid orderId, decimal amount, string orderCode)
+    // Trang redirect sau thanh toán dành cho nạp ví (khác trang đơn hàng).
+    public string WalletReturnUrl => _returnUrlWallet;
+
+    public async Task<ZaloPayResult> CreatePaymentAsync(Guid orderId, decimal amount, string orderCode, string? returnUrl = null)
     {
         var appTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         // app_trans_id format: yyMMdd_<guidHex32> (total ≤ 40 chars)
@@ -57,7 +62,7 @@ public class ZaloPayService
             embed_data = embedData,
             bank_code = "",
             callback_url = _ipnUrl,
-            redirect_url = _returnUrl,
+            redirect_url = returnUrl ?? _returnUrl,
             mac,
         };
 

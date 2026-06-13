@@ -96,6 +96,17 @@ public class CouponService
         }
     }
 
+    // Hoàn lượt dùng coupon (platform) khi đơn bị huỷ. KHÔNG SaveChanges — để caller lưu chung.
+    // Coupon của seller không lưu theo đơn nên không hoàn được (chấp nhận giới hạn này).
+    public async Task ReleaseUsageByOrderAsync(Guid orderId, CancellationToken ct)
+    {
+        var usage = await _db.CouponUsages.FirstOrDefaultAsync(u => u.OrderId == orderId, ct);
+        if (usage == null) return;
+        var coupon = await _db.Coupons.FirstOrDefaultAsync(c => c.Id == usage.CouponId, ct);
+        if (coupon != null && coupon.UsedCount > 0) coupon.UsedCount--;
+        _db.CouponUsages.Remove(usage);
+    }
+
     private async Task<ValidateResult> ValidateSellerCouponAsync(
         Guid userId, string code, decimal orderAmount, DateTime now, CancellationToken ct)
     {

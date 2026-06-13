@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CheckCircle2, Loader2, ExternalLink, X, Clock, Smartphone } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { ApiVNPayResult, ApiOrder } from "@/lib/apiTypes";
+import type { ApiVNPayResult } from "@/lib/apiTypes";
 import { formatVND } from "@/lib/format";
+import { isPaymentDone } from "@/lib/paymentStatus";
 
 const VNPAY_COLOR = "#003399";
 const TIMEOUT_SECS = 15 * 60; // VNPay default expiry is 15 minutes
@@ -20,6 +21,9 @@ export function VNPayModal({
   token,
   onSuccess,
   onCancel,
+  statusUrl,
+  subjectLabel = "Đơn hàng",
+  successText = "Đang chuyển đến đơn hàng…",
 }: {
   orderId: string;
   orderCode: string;
@@ -28,6 +32,9 @@ export function VNPayModal({
   token: string;
   onSuccess: () => void;
   onCancel: () => void;
+  statusUrl?: string;
+  subjectLabel?: string;
+  successText?: string;
 }) {
   const [phase, setPhase] = useState<"waiting" | "success" | "failed">("waiting");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECS);
@@ -47,18 +54,20 @@ export function VNPayModal({
       });
     }, 1000);
 
+    const url = statusUrl ?? `/api/orders/${orderId}`;
     pollRef.current = setInterval(async () => {
       try {
-        const order = await apiFetch<ApiOrder>(`/api/orders/${orderId}`, { token });
-        if (order.status !== "PendingPayment") {
+        const { status } = await apiFetch<{ status: string }>(url, { token });
+        const { done, failed } = isPaymentDone(status);
+        if (done) {
           stopAll();
-          setPhase(order.status === "Cancelled" ? "failed" : "success");
+          setPhase(failed ? "failed" : "success");
         }
       } catch { /* ignore transient errors */ }
     }, 3000);
 
     return stopAll;
-  }, [orderId, token, stopAll]);
+  }, [orderId, token, statusUrl, stopAll]);
 
   useEffect(() => {
     if (phase === "success") {
@@ -93,7 +102,7 @@ export function VNPayModal({
           {phase === "waiting" && (
             <>
               <p className="text-xs text-text-muted">
-                Đơn hàng <span className="font-mono font-bold text-text">{orderCode}</span>
+                {subjectLabel} <span className="font-mono font-bold text-text">{orderCode}</span>
               </p>
               <p className="num mt-1 mb-5 text-2xl font-extrabold text-accent">{formatVND(total)}</p>
 
@@ -141,7 +150,7 @@ export function VNPayModal({
             <div className="py-8">
               <CheckCircle2 className="mx-auto mb-3 size-16 text-success" />
               <p className="text-xl font-bold text-text">Thanh toán thành công!</p>
-              <p className="mt-1 text-sm text-text-muted">Đang chuyển đến đơn hàng…</p>
+              <p className="mt-1 text-sm text-text-muted">{successText}</p>
             </div>
           )}
 

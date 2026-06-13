@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MmoMarket.Application.Orders;
 using MmoMarket.Application.Payments;
+using MmoMarket.Application.Wallet;
 using MmoMarket.Domain.Enums;
 
 namespace MmoMarket.Api.Controllers;
@@ -14,12 +15,13 @@ public class PaymentController : ControllerBase
     private readonly MoMoService _momo;
     private readonly ZaloPayService _zalo;
     private readonly VNPayService _vnpay;
-    private readonly VietQrService _vietqr;
+    private readonly SePayPgService _sepayPg;
     private readonly OrderService _order;
+    private readonly WalletTopupService _topup;
     private readonly PaymentLogService _payLog;
 
-    public PaymentController(MoMoService momo, ZaloPayService zalo, VNPayService vnpay, VietQrService vietqr, OrderService order, PaymentLogService payLog)
-    { _momo = momo; _zalo = zalo; _vnpay = vnpay; _vietqr = vietqr; _order = order; _payLog = payLog; }
+    public PaymentController(MoMoService momo, ZaloPayService zalo, VNPayService vnpay, SePayPgService sepayPg, OrderService order, WalletTopupService topup, PaymentLogService payLog)
+    { _momo = momo; _zalo = zalo; _vnpay = vnpay; _sepayPg = sepayPg; _order = order; _topup = topup; _payLog = payLog; }
 
     /// <summary>
     /// MoMo IPN — server-to-server callback (JSON body).
@@ -35,7 +37,9 @@ public class PaymentController : ControllerBase
         {
             await _payLog.RecordAsync("momo", dto.TransId.ToString(), PaymentMethod.Momo,
                 dto.Amount, orderId, "success", JsonSerializer.Serialize(dto), ct);
-            await _order.ConfirmExternalPaymentAsync(orderId, ct);
+            // Cùng không gian id: nếu không phải đơn hàng thì thử nạp ví. Đối chiếu số tiền cổng báo.
+            if (!await _order.ConfirmExternalPaymentAsync(orderId, dto.Amount, ct))
+                await _topup.ConfirmByIdAsync(orderId, dto.Amount, ct);
         }
 
         return Ok(new { message = "OK" });
@@ -60,7 +64,8 @@ public class PaymentController : ControllerBase
                 var (transId, amount) = ZaloPayService.ParseTransInfoFromIpn(data);
                 await _payLog.RecordAsync("zalopay", transId, PaymentMethod.ZaloPay,
                     amount, orderId.Value, "success", data, ct);
-                await _order.ConfirmExternalPaymentAsync(orderId.Value, ct);
+                if (!await _order.ConfirmExternalPaymentAsync(orderId.Value, amount, ct))
+                    await _topup.ConfirmByIdAsync(orderId.Value, amount, ct);
             }
         }
 
@@ -91,8 +96,9 @@ public class PaymentController : ControllerBase
                 decimal vnpAmount = decimal.TryParse(queryParams.GetValueOrDefault("vnp_Amount", "0"), out var a) ? a / 100m : 0m;
                 await _payLog.RecordAsync("vnpay", vnpTxnNo, PaymentMethod.VnPay,
                     vnpAmount, orderId.Value, "success", JsonSerializer.Serialize(queryParams), ct);
-                var confirmed = await _order.ConfirmExternalPaymentAsync(orderId.Value, ct);
-                if (!confirmed)
+                // Cùng không gian id: nếu không phải đơn hàng thì thử nạp ví. Đối chiếu số tiền cổng báo.
+                if (!await _order.ConfirmExternalPaymentAsync(orderId.Value, vnpAmount, ct)
+                    && !await _topup.ConfirmByIdAsync(orderId.Value, vnpAmount, ct))
                     return Ok(new { RspCode = "02", Message = "Order already confirmed" });
             }
             else
@@ -105,26 +111,27 @@ public class PaymentController : ControllerBase
     }
 
     /// <summary>
-    /// SePay webhook — bank transfer confirmation (VietQR).
-    /// SePay POSTs JSON; header: Authorization: Apikey {key}
-    /// NOTE: Webhook URL must be publicly reachable (update appsettings.json / ngrok).
+    /// IPN cổng thanh toán SePay. Thay vì tin chữ ký IPN, ta xác minh lại qua REST API
+    /// (GET order/detail) rồi mới ghi nhận — an toàn và độc lập với định dạng chữ ký.
     /// </summary>
-    [HttpPost("sepay/webhook")]
+    [HttpPost("sepay-pg/ipn")]
     [AllowAnonymous]
-    public async Task<IActionResult> SePayWebhook([FromBody] SePayWebhookDto dto, CancellationToken ct)
+    public async Task<IActionResult> SePayPgIpn(CancellationToken ct)
     {
-        var auth = Request.Headers.Authorization.FirstOrDefault();
-        if (!_vietqr.VerifySePayWebhook(auth))
-            return Unauthorized(new { success = false, message = "Invalid API key" });
-
-        // Only process incoming transfers (transferType == "in")
-        if (!string.Equals(dto.TransferType, "in", StringComparison.OrdinalIgnoreCase))
-            return Ok(new { success = true });
-
-        await _payLog.RecordAsync("sepay", dto.ReferenceCode ?? dto.Id.ToString(), PaymentMethod.VietQr,
-            dto.TransferAmount, null, "success", JsonSerializer.Serialize(dto), ct);
-        await _order.ConfirmExternalPaymentByTransferNoteAsync(dto.Content ?? "", ct);
-
+        using var reader = new StreamReader(Request.Body);
+        var body = await reader.ReadToEndAsync(ct);
+        var invoice = SePayPgService.ParseInvoiceFromIpn(body);
+        if (!string.IsNullOrEmpty(invoice))
+        {
+            var st = await _sepayPg.GetOrderStatusAsync(invoice, ct);
+            if (st.Found && SePayPgService.IsPaid(st.Status))
+            {
+                await _payLog.RecordAsync("sepay-pg", invoice, PaymentMethod.VietQr, st.Amount, null, "success", body, ct);
+                // invoice = mã đơn (MMK-) hoặc mã nạp ví (NAP-); thử cả hai (idempotent). Đối chiếu số tiền SePay báo.
+                if (!await _order.ConfirmExternalPaymentByTransferNoteAsync(invoice, st.Amount, ct))
+                    await _topup.ConfirmByTransferNoteAsync(invoice, st.Amount, ct);
+            }
+        }
         return Ok(new { success = true });
     }
 }

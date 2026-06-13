@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<CartService>();
         services.AddScoped<OrderService>();
         services.AddScoped<WalletService>();
+        services.AddScoped<WalletTopupService>();
         services.AddScoped<KycService>();
         services.AddScoped<SellerService>();
         services.AddScoped<ReviewService>();
@@ -40,7 +41,7 @@ public static class DependencyInjection
         services.AddScoped<MoMoService>();
         services.AddScoped<ZaloPayService>();
         services.AddScoped<VNPayService>();
-        services.AddScoped<VietQrService>();
+        services.AddScoped<SePayPgService>();
         services.AddScoped<UsdtService>();
         services.AddScoped<PaymentLogService>();
         services.AddScoped<SellerPlanService>();

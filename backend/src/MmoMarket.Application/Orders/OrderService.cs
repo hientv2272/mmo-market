@@ -5,6 +5,7 @@ using MmoMarket.Application.Auth;
 using MmoMarket.Application.Common;
 using MmoMarket.Application.Config;
 using MmoMarket.Application.Coupons;
+using MmoMarket.Application.Payments;
 using MmoMarket.Domain.Entities;
 using MmoMarket.Domain.Enums;
 
@@ -239,13 +240,24 @@ public class OrderService
         return order == null ? null : Map(order);
     }
 
-    // Idempotent: called by MoMo / ZaloPay / VNPay IPN to mark an external payment as paid.
-    public async Task<bool> ConfirmExternalPaymentAsync(Guid orderId, CancellationToken ct)
+    // So khớp số tiền VND (làm tròn về đồng) — chống xác nhận đơn khi số tiền thực trả không đúng.
+    private static bool AmountsMatch(decimal a, decimal b) => (long)Math.Round(a) == (long)Math.Round(b);
+
+    // Idempotent: called by MoMo / ZaloPay / VNPay / SePay IPN to mark an external payment as paid.
+    // paidAmount: số tiền cổng báo đã thu (null = bỏ qua kiểm tra, chỉ dùng khi đã verify nơi khác).
+    public async Task<bool> ConfirmExternalPaymentAsync(Guid orderId, decimal? paidAmount, CancellationToken ct)
     {
         var order = await _db.Orders.Include(o => o.Lines)
             .FirstOrDefaultAsync(o => o.Id == orderId, ct);
         if (order == null) return false;
         if (order.Status != OrderStatus.PendingPayment) return true; // already confirmed
+        if (paidAmount.HasValue && !AmountsMatch(paidAmount.Value, order.Total))
+        {
+            AddAudit(order.BuyerId, "Buyer", "external_payment_amount_mismatch", "Order", order.Code, paidAmount.Value,
+                $"Số tiền thanh toán ngoài ({paidAmount.Value:N0}đ) khác tổng đơn {order.Code} ({order.Total:N0}đ) — KHÔNG xác nhận.");
+            await _db.SaveChangesAsync(ct);
+            return false;
+        }
 
         order.Status = OrderStatus.EscrowLocked;
         order.PaidAt = DateTime.UtcNow;
@@ -256,8 +268,8 @@ public class OrderService
         return true;
     }
 
-    // Called by SePay webhook: extract MMK-XXXXXXX from transfer note, then confirm matching VietQR order.
-    public async Task<bool> ConfirmExternalPaymentByTransferNoteAsync(string content, CancellationToken ct)
+    // Called by SePay IPN: extract MMK-XXXXXXX from transfer note, then confirm matching VietQR order.
+    public async Task<bool> ConfirmExternalPaymentByTransferNoteAsync(string content, decimal? paidAmount, CancellationToken ct)
     {
         var match = Regex.Match(content ?? "", @"MMK-\d{7}", RegexOptions.IgnoreCase);
         if (!match.Success) return false;
@@ -268,6 +280,13 @@ public class OrderService
                 && o.Status == OrderStatus.PendingPayment
                 && o.PaymentMethod == PaymentMethod.VietQr, ct);
         if (order == null) return false;
+        if (paidAmount.HasValue && !AmountsMatch(paidAmount.Value, order.Total))
+        {
+            AddAudit(order.BuyerId, "Buyer", "external_payment_amount_mismatch", "Order", order.Code, paidAmount.Value,
+                $"Số tiền chuyển khoản ({paidAmount.Value:N0}đ) khác tổng đơn {order.Code} ({order.Total:N0}đ) — KHÔNG xác nhận.");
+            await _db.SaveChangesAsync(ct);
+            return false;
+        }
 
         order.Status = OrderStatus.EscrowLocked;
         order.PaidAt = DateTime.UtcNow;
@@ -276,6 +295,91 @@ public class OrderService
         await ProcessPaidOrderAsync(order, ct);
         await _db.SaveChangesAsync(ct);
         return true;
+    }
+
+    // Sinh invoice SePay DUY NHẤT cho mỗi lần thanh toán (SePay yêu cầu order_invoice_number không trùng).
+    // Lần đầu = mã đơn; lần thanh toán lại = "{Code}-{n}". Lưu vào PaymentTransaction để reconcile/check tra lại.
+    public async Task<string> NewSePayInvoiceAsync(Guid userId, Guid orderId, CancellationToken ct)
+    {
+        var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == orderId && o.BuyerId == userId, ct)
+            ?? throw new AppException("Không tìm thấy đơn", 404);
+        if (order.Status != OrderStatus.PendingPayment)
+            throw new AppException("Đơn không ở trạng thái chờ thanh toán");
+
+        var attempts = await _db.PaymentTransactions.CountAsync(
+            p => p.OrderId == orderId && p.Provider == "sepay-init", ct);
+        var invoice = attempts == 0 ? order.Code : $"{order.Code}-{attempts + 1}";
+        _db.PaymentTransactions.Add(new PaymentTransaction
+        {
+            OrderId = orderId, Method = PaymentMethod.VietQr, Provider = "sepay-init",
+            ProviderTxnId = invoice, Amount = order.Total, Status = "initiated",
+        });
+        await _db.SaveChangesAsync(ct);
+        return invoice;
+    }
+
+    // Mọi invoice SePay đã phát cho đơn (mới nhất trước); fallback mã đơn nếu chưa từng init.
+    public async Task<List<string>> SePayInvoicesAsync(Guid orderId, string orderCode, CancellationToken ct)
+    {
+        var list = await _db.PaymentTransactions
+            .Where(p => p.OrderId == orderId && p.Provider == "sepay-init")
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(5)
+            .Select(p => p.ProviderTxnId)
+            .ToListAsync(ct);
+        if (list.Count == 0) list.Add(orderCode);
+        return list;
+    }
+
+    // Đối soát các đơn VietQR(SePay) đang chờ thanh toán với cổng SePay rồi xác nhận đơn đã CAPTURED.
+    // Dùng cho worker nền (userId = null) và trang đơn hàng (userId cụ thể) — không phụ thuộc modal client.
+    public async Task<int> ReconcilePendingSePayAsync(SePayPgService sepay, Guid? userId, CancellationToken ct)
+    {
+        if (!sepay.Enabled) return 0;
+        var since = DateTime.UtcNow.AddHours(-2);
+        var query = _db.Orders
+            .Where(o => o.Status == OrderStatus.PendingPayment
+                && o.PaymentMethod == PaymentMethod.VietQr && o.CreatedAt >= since);
+        if (userId.HasValue) query = query.Where(o => o.BuyerId == userId.Value);
+        var pending = await query.OrderByDescending(o => o.CreatedAt).Take(100)
+            .Select(o => new { o.Id, o.Code }).ToListAsync(ct);
+
+        var confirmed = 0;
+        foreach (var o in pending)
+        {
+            // Một đơn có thể có nhiều invoice (thanh toán nhiều lần) — kiểm tra tất cả, xác nhận nếu có cái nào CAPTURED.
+            foreach (var invoice in await SePayInvoicesAsync(o.Id, o.Code, ct))
+            {
+                var st = await sepay.GetOrderStatusAsync(invoice, ct);
+                if (st.Found && SePayPgService.IsPaid(st.Status))
+                {
+                    if (await ConfirmExternalPaymentAsync(o.Id, st.Amount, ct)) confirmed++;
+                    break;
+                }
+            }
+        }
+        return confirmed;
+    }
+
+    // Tự huỷ đơn còn "Chờ thanh toán" quá hạn (gọi SAU reconcile để không huỷ nhầm đơn đã trả).
+    private static readonly TimeSpan PendingPaymentTtl = TimeSpan.FromMinutes(30);
+    public async Task<int> CancelStalePendingPaymentAsync(CancellationToken ct)
+    {
+        var cutoff = DateTime.UtcNow - PendingPaymentTtl;
+        var stale = await _db.Orders
+            .Where(o => o.Status == OrderStatus.PendingPayment && o.CreatedAt < cutoff)
+            .Take(200)
+            .ToListAsync(ct);
+        if (stale.Count == 0) return 0;
+        foreach (var o in stale)
+        {
+            o.Status = OrderStatus.Cancelled;
+            await _coupon.ReleaseUsageByOrderAsync(o.Id, ct); // hoàn lượt coupon (nếu có) — chưa SaveChanges
+            AddAudit(o.BuyerId, "Buyer", "order_payment_timeout", "Order", o.Code, o.Total,
+                $"Tự huỷ đơn {o.Code} do quá hạn chưa thanh toán");
+        }
+        await _db.SaveChangesAsync(ct);
+        return stale.Count;
     }
 
     public async Task<OrderDto> ConfirmReceivedAsync(Guid userId, Guid id, CancellationToken ct)

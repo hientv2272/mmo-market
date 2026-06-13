@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CheckCircle2, Loader2, X, Clock, Copy, Check, AlertTriangle, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { ApiUsdtPayResult, ApiUsdtCheckResult, ApiOrder } from "@/lib/apiTypes";
+import type { ApiUsdtPayResult, ApiUsdtCheckResult } from "@/lib/apiTypes";
 import { formatVND } from "@/lib/format";
+import { isPaymentDone } from "@/lib/paymentStatus";
 
 const USDT_COLOR = "#26a17b";
 const TIMEOUT_SECS = 60 * 60; // 60 minutes — blockchain confirmations take longer
@@ -37,6 +38,10 @@ export function UsdtPayModal({
   token,
   onSuccess,
   onCancel,
+  statusUrl,
+  checkUrl,
+  subjectLabel = "Đơn hàng",
+  successText = "Đang chuyển đến đơn hàng…",
 }: {
   orderId: string;
   orderCode: string;
@@ -45,6 +50,10 @@ export function UsdtPayModal({
   token: string;
   onSuccess: () => void;
   onCancel: () => void;
+  statusUrl?: string;
+  checkUrl?: string;
+  subjectLabel?: string;
+  successText?: string;
 }) {
   const [phase, setPhase] = useState<"waiting" | "success" | "failed">("waiting");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECS);
@@ -65,19 +74,19 @@ export function UsdtPayModal({
     setChecking(true);
     setCheckMsg(null);
     try {
-      const res = await apiFetch<ApiUsdtCheckResult>(`/api/orders/${orderId}/usdt-check`, {
+      const res = await apiFetch<ApiUsdtCheckResult>(checkUrl ?? `/api/orders/${orderId}/usdt-check`, {
         method: "POST",
         token,
       });
       if (res.found)        setCheckMsg("Đã tìm thấy giao dịch! Đang xác nhận...");
-      else if (res.alreadyPaid) setCheckMsg("Đơn hàng đã được xác nhận.");
+      else if (res.alreadyPaid) setCheckMsg("Giao dịch đã được xác nhận.");
       else                  setCheckMsg("Chưa tìm thấy giao dịch phù hợp.");
     } catch {
       setCheckMsg("Không thể kết nối blockchain. Thử lại sau.");
     } finally {
       setChecking(false);
     }
-  }, [orderId, token, checking]);
+  }, [orderId, token, checkUrl, checking]);
 
   useEffect(() => {
     // Countdown
@@ -88,13 +97,15 @@ export function UsdtPayModal({
       });
     }, 1000);
 
-    // Poll order status
+    // Poll payment status
+    const url = statusUrl ?? `/api/orders/${orderId}`;
     pollRef.current = setInterval(async () => {
       try {
-        const order = await apiFetch<ApiOrder>(`/api/orders/${orderId}`, { token });
-        if (order.status !== "PendingPayment") {
+        const { status } = await apiFetch<{ status: string }>(url, { token });
+        const { done, failed } = isPaymentDone(status);
+        if (done) {
           stopAll();
-          setPhase(order.status === "Cancelled" ? "failed" : "success");
+          setPhase(failed ? "failed" : "success");
         }
       } catch { /* ignore */ }
     }, POLL_INTERVAL_MS);
@@ -103,7 +114,7 @@ export function UsdtPayModal({
     checkRef.current = setInterval(() => { triggerCheck(); }, CHECK_INTERVAL_MS);
 
     return stopAll;
-  }, [orderId, token, stopAll, triggerCheck]);
+  }, [orderId, token, statusUrl, stopAll, triggerCheck]);
 
   useEffect(() => {
     if (phase === "success") {
@@ -141,7 +152,7 @@ export function UsdtPayModal({
               {/* Order info */}
               <div className="text-center">
                 <p className="text-xs text-text-muted">
-                  Đơn hàng <span className="font-mono font-bold text-text">{orderCode}</span>
+                  {subjectLabel} <span className="font-mono font-bold text-text">{orderCode}</span>
                   <span className="ml-2 text-text-muted">({formatVND(total)})</span>
                 </p>
                 {/* Big USDT amount */}
@@ -222,7 +233,7 @@ export function UsdtPayModal({
             <div className="py-8 text-center">
               <CheckCircle2 className="mx-auto mb-3 size-16 text-success" />
               <p className="text-xl font-bold text-text">Thanh toán thành công!</p>
-              <p className="mt-1 text-sm text-text-muted">Đang chuyển đến đơn hàng…</p>
+              <p className="mt-1 text-sm text-text-muted">{successText}</p>
             </div>
           )}
 

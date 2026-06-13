@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CheckCircle2, Loader2, ExternalLink, X, Clock, Smartphone } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { ApiMoMoPayResult, ApiOrder } from "@/lib/apiTypes";
+import type { ApiMoMoPayResult } from "@/lib/apiTypes";
 import { formatVND } from "@/lib/format";
+import { isPaymentDone } from "@/lib/paymentStatus";
 
 const MOMO_COLOR = "#ae2070";
 const TIMEOUT_SECS = 10 * 60; // 10 minutes
@@ -16,6 +17,9 @@ export function MoMoPayModal({
   token,
   onSuccess,
   onCancel,
+  statusUrl,
+  subjectLabel = "Đơn hàng",
+  successText = "Đang chuyển đến đơn hàng…",
 }: {
   orderId: string;
   orderCode: string;
@@ -24,6 +28,9 @@ export function MoMoPayModal({
   token: string;
   onSuccess: () => void;
   onCancel: () => void;
+  statusUrl?: string;
+  subjectLabel?: string;
+  successText?: string;
 }) {
   const [phase, setPhase] = useState<"waiting" | "success" | "failed">("waiting");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECS);
@@ -44,19 +51,21 @@ export function MoMoPayModal({
       });
     }, 1000);
 
-    // Poll order status every 3 seconds
+    // Poll payment status every 3 seconds
+    const url = statusUrl ?? `/api/orders/${orderId}`;
     pollRef.current = setInterval(async () => {
       try {
-        const order = await apiFetch<ApiOrder>(`/api/orders/${orderId}`, { token });
-        if (order.status !== "PendingPayment") {
+        const { status } = await apiFetch<{ status: string }>(url, { token });
+        const { done, failed } = isPaymentDone(status);
+        if (done) {
           stopAll();
-          setPhase(order.status === "Cancelled" ? "failed" : "success");
+          setPhase(failed ? "failed" : "success");
         }
       } catch { /* ignore transient errors */ }
     }, 3000);
 
     return stopAll;
-  }, [orderId, token, stopAll]);
+  }, [orderId, token, statusUrl, stopAll]);
 
   // Auto-navigate on success
   useEffect(() => {
@@ -92,7 +101,7 @@ export function MoMoPayModal({
           {phase === "waiting" && (
             <>
               <p className="text-xs text-text-muted">
-                Đơn hàng <span className="font-mono font-bold text-text">{orderCode}</span>
+                {subjectLabel} <span className="font-mono font-bold text-text">{orderCode}</span>
               </p>
               <p className="num mt-1 mb-5 text-2xl font-extrabold text-accent">{formatVND(total)}</p>
 
@@ -149,7 +158,7 @@ export function MoMoPayModal({
             <div className="py-8">
               <CheckCircle2 className="mx-auto mb-3 size-16 text-success" />
               <p className="text-xl font-bold text-text">Thanh toán thành công!</p>
-              <p className="mt-1 text-sm text-text-muted">Đang chuyển đến đơn hàng…</p>
+              <p className="mt-1 text-sm text-text-muted">{successText}</p>
             </div>
           )}
 

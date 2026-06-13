@@ -15,14 +15,14 @@ public class OrderController : ControllerBase
     private readonly MoMoService   _momo;
     private readonly ZaloPayService _zalo;
     private readonly VNPayService  _vnpay;
-    private readonly VietQrService _vietqr;
+    private readonly SePayPgService _sepay;
     private readonly UsdtService   _usdt;
     private readonly ICurrentUser  _user;
 
     public OrderController(
         OrderService svc, MoMoService momo, ZaloPayService zalo,
-        VNPayService vnpay, VietQrService vietqr, UsdtService usdt, ICurrentUser user)
-    { _svc = svc; _momo = momo; _zalo = zalo; _vnpay = vnpay; _vietqr = vietqr; _usdt = usdt; _user = user; }
+        VNPayService vnpay, SePayPgService sepay, UsdtService usdt, ICurrentUser user)
+    { _svc = svc; _momo = momo; _zalo = zalo; _vnpay = vnpay; _sepay = sepay; _usdt = usdt; _user = user; }
 
     private Guid Uid => _user.UserId ?? throw new AppException("Unauthorized", 401);
 
@@ -50,13 +50,37 @@ public class OrderController : ControllerBase
         return await _zalo.CreatePaymentAsync(id, order.Total, order.Code);
     }
 
+    // "VietQR / Chuyển khoản" giờ dùng cổng SePay thật: trả về form để client submit sang trang SePay.
     [HttpPost("{id:guid}/vietqr-pay")]
-    public async Task<VietQrResult> VietQrPay(Guid id, CancellationToken ct)
+    public async Task<SePayCheckoutResult> VietQrPay(Guid id, CancellationToken ct)
     {
         var order = await _svc.GetByIdAsync(Uid, id, ct)
             ?? throw new AppException("Không tìm thấy đơn", 404);
         if (order.Status != "PendingPayment") throw new AppException("Đơn không ở trạng thái chờ thanh toán");
-        return _vietqr.GenerateQr(order.Total, order.Code);
+        if (!_sepay.Enabled) throw new AppException("Cổng thanh toán SePay chưa được cấu hình");
+        var invoice = await _svc.NewSePayInvoiceAsync(Uid, id, ct); // invoice duy nhất mỗi lần (tránh trùng)
+        return _sepay.BuildCheckout(invoice, order.Total, $"Thanh toan don hang {order.Code}", "BANK_TRANSFER", "/account/orders");
+    }
+
+    /// <summary>Modal poll endpoint: tra trạng thái đơn ở SePay (mọi invoice đã phát), tự xác nhận nếu CAPTURED.</summary>
+    [HttpPost("{id:guid}/sepay-check")]
+    public async Task<IActionResult> SePayCheck(Guid id, CancellationToken ct)
+    {
+        var order = await _svc.GetByIdAsync(Uid, id, ct)
+            ?? throw new AppException("Không tìm thấy đơn", 404);
+        if (order.Status != "PendingPayment") return Ok(new { done = true, status = order.Status });
+
+        foreach (var invoice in await _svc.SePayInvoicesAsync(order.Id, order.Code, ct))
+        {
+            var st = await _sepay.GetOrderStatusAsync(invoice, ct);
+            if (st.Found && SePayPgService.IsPaid(st.Status))
+            {
+                if (await _svc.ConfirmExternalPaymentAsync(id, st.Amount, ct))
+                    return Ok(new { done = true, status = "CAPTURED" });
+                return Ok(new { done = false, status = "AMOUNT_MISMATCH" });
+            }
+        }
+        return Ok(new { done = false, status = "PENDING" });
     }
 
     [HttpPost("{id:guid}/vnpay-pay")]
@@ -94,13 +118,21 @@ public class OrderController : ControllerBase
 
         var found = await _usdt.CheckTransactionAsync(id, order.Total, order.CreatedAt, ct);
         if (found)
-            await _svc.ConfirmExternalPaymentAsync(id, ct);
+            await _svc.ConfirmExternalPaymentAsync(id, null, ct); // số tiền USDT đã khớp on-chain ở CheckTransactionAsync
 
         return Ok(new { found });
     }
 
     [HttpPost("{id:guid}/confirm")]
     public Task<OrderDto> Confirm(Guid id, CancellationToken ct) => _svc.ConfirmReceivedAsync(Uid, id, ct);
+
+    /// <summary>Đối soát các đơn VietQR/SePay đang chờ thanh toán của user rồi trả danh sách mới.</summary>
+    [HttpPost("reconcile")]
+    public async Task<OrderDto[]> Reconcile([FromQuery] string? status, CancellationToken ct)
+    {
+        await _svc.ReconcilePendingSePayAsync(_sepay, Uid, ct);
+        return await _svc.GetMyOrdersAsync(Uid, status, ct);
+    }
 
     [HttpGet]
     public Task<OrderDto[]> List([FromQuery] string? status, CancellationToken ct) => _svc.GetMyOrdersAsync(Uid, status, ct);

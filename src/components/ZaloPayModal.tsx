@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CheckCircle2, Loader2, ExternalLink, X, Clock, Smartphone } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { ApiZaloPayResult, ApiOrder } from "@/lib/apiTypes";
+import type { ApiZaloPayResult } from "@/lib/apiTypes";
 import { formatVND } from "@/lib/format";
+import { isPaymentDone } from "@/lib/paymentStatus";
 
 const ZALO_BLUE = "#0068ff";
 const TIMEOUT_SECS = 10 * 60;
@@ -21,6 +22,9 @@ export function ZaloPayModal({
   token,
   onSuccess,
   onCancel,
+  statusUrl,
+  subjectLabel = "Đơn hàng",
+  successText = "Đang chuyển đến đơn hàng…",
 }: {
   orderId: string;
   orderCode: string;
@@ -29,6 +33,9 @@ export function ZaloPayModal({
   token: string;
   onSuccess: () => void;
   onCancel: () => void;
+  statusUrl?: string;
+  subjectLabel?: string;
+  successText?: string;
 }) {
   const [phase, setPhase] = useState<"waiting" | "success" | "failed">("waiting");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECS);
@@ -48,18 +55,20 @@ export function ZaloPayModal({
       });
     }, 1000);
 
+    const url = statusUrl ?? `/api/orders/${orderId}`;
     pollRef.current = setInterval(async () => {
       try {
-        const order = await apiFetch<ApiOrder>(`/api/orders/${orderId}`, { token });
-        if (order.status !== "PendingPayment") {
+        const { status } = await apiFetch<{ status: string }>(url, { token });
+        const { done, failed } = isPaymentDone(status);
+        if (done) {
           stopAll();
-          setPhase(order.status === "Cancelled" ? "failed" : "success");
+          setPhase(failed ? "failed" : "success");
         }
       } catch { /* ignore */ }
     }, 3000);
 
     return stopAll;
-  }, [orderId, token, stopAll]);
+  }, [orderId, token, statusUrl, stopAll]);
 
   useEffect(() => {
     if (phase === "success") {
@@ -94,7 +103,7 @@ export function ZaloPayModal({
           {phase === "waiting" && (
             <>
               <p className="text-xs text-text-muted">
-                Đơn hàng <span className="font-mono font-bold text-text">{orderCode}</span>
+                {subjectLabel} <span className="font-mono font-bold text-text">{orderCode}</span>
               </p>
               <p className="num mt-1 mb-5 text-2xl font-extrabold text-accent">{formatVND(total)}</p>
 
@@ -142,7 +151,7 @@ export function ZaloPayModal({
             <div className="py-8">
               <CheckCircle2 className="mx-auto mb-3 size-16 text-success" />
               <p className="text-xl font-bold text-text">Thanh toán thành công!</p>
-              <p className="mt-1 text-sm text-text-muted">Đang chuyển đến đơn hàng…</p>
+              <p className="mt-1 text-sm text-text-muted">{successText}</p>
             </div>
           )}
 
