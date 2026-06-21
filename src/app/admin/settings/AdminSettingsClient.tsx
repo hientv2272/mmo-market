@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import {
   AlertTriangle, CheckCircle2, CreditCard, Globe,
-  Loader2, Lock, Settings, Wrench,
+  Loader2, Lock, Rocket, Settings, Sparkles, Wrench,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { adminNav } from "@/lib/adminNav";
@@ -28,6 +28,8 @@ const DEFAULT_SETTINGS: ApiSystemSettings = {
   registrationEnabled: true, welcomeBonus: 100000,
   minWithdraw: 50000, maxWithdraw: 50000000, escrowReleaseDays: 3, disputeSlaHours: 72,
   kycRequiredToSell: true, enabledPayments: ["Wallet", "VietQr", "Momo"],
+  trustBadgePrice: 200000, trustBadgeMinReviews: 50, trustBadgeMinRating: 4.5,
+  boostDurationHours: 24, boostPaidPrice: 20000,
 };
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
@@ -342,6 +344,62 @@ export function AdminSettingsClient() {
               Hiện có <strong className="text-text">{s.enabledPayments.length}</strong> phương thức được bật.
               Ví nội bộ luôn cần bật để hệ thống refund và tặng thưởng hoạt động.
             </p>
+          </div>
+        </Section>
+
+        {/* ── 5. Badge Uy tín ── */}
+        <Section
+          icon={<Sparkles className="size-4" />}
+          title="Badge Uy tín"
+          desc="Giá và điều kiện để seller mua badge Uy tín"
+          saving={!!saving.badge}
+          onSave={() => save("badge", { trustBadgePrice: s.trustBadgePrice, trustBadgeMinReviews: s.trustBadgeMinReviews, trustBadgeMinRating: s.trustBadgeMinRating })}
+        >
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Giá badge / năm (₫)">
+              <div className="flex items-center gap-2">
+                <Input type="number" value={s.trustBadgePrice}
+                  onChange={v => set("trustBadgePrice", parseFloat(v) || 0)} />
+                <span className="shrink-0 text-xs font-semibold text-accent">{formatVND(s.trustBadgePrice)}</span>
+              </div>
+            </Field>
+            <Field label="Tối thiểu số đánh giá" hint="Số đánh giá cần có để đủ điều kiện">
+              <Input type="number" value={s.trustBadgeMinReviews}
+                onChange={v => set("trustBadgeMinReviews", parseInt(v) || 0)} />
+            </Field>
+            <Field label="Rating tối thiểu (★)" hint="Từ 0 đến 5">
+              <Input type="number" value={s.trustBadgeMinRating}
+                onChange={v => set("trustBadgeMinRating", parseFloat(v) || 0)} />
+            </Field>
+          </div>
+        </Section>
+
+        {/* ── 6. Boost / Đẩy tin ── */}
+        <Section
+          icon={<Rocket className="size-4" />}
+          title="Boost / Đẩy tin"
+          desc="Thời lượng boost và phí boost khi seller hết lượt miễn phí trong gói"
+          saving={!!saving.boost}
+          onSave={() => save("boost", { boostDurationHours: s.boostDurationHours, boostPaidPrice: s.boostPaidPrice })}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Thời lượng mỗi lượt boost (giờ)" hint="Sản phẩm được đẩy lên đầu danh mục trong bao lâu">
+              <div className="flex items-center gap-3">
+                <input type="range" min={1} max={168} value={s.boostDurationHours}
+                  onChange={e => set("boostDurationHours", parseInt(e.target.value))}
+                  className="flex-1 accent-brand" />
+                <span className="w-16 rounded-lg border border-border bg-bg-elev px-2 py-1.5 text-center text-sm font-bold text-text">
+                  {s.boostDurationHours}h
+                </span>
+              </div>
+            </Field>
+            <Field label="Phí boost trả phí (₫)" hint="Chi phí mỗi lượt boost sau khi hết quota miễn phí của gói">
+              <div className="flex items-center gap-2">
+                <Input type="number" value={s.boostPaidPrice}
+                  onChange={v => set("boostPaidPrice", parseFloat(v) || 0)} />
+                <span className="shrink-0 text-xs font-semibold text-brand">{formatVND(s.boostPaidPrice)}</span>
+              </div>
+            </Field>
           </div>
         </Section>
 

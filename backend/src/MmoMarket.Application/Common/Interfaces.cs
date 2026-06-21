@@ -35,6 +35,7 @@ public interface IAppDbContext
     DbSet<FeeConfig> FeeConfigs { get; }
     DbSet<SellerPlan> SellerPlans { get; }
     DbSet<BoostLog> BoostLogs { get; }
+    DbSet<SellerPayoutMethod> SellerPayoutMethods { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }
 

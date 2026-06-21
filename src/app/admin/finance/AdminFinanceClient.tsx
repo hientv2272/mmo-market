@@ -63,11 +63,15 @@ export function AdminFinanceClient() {
     if (!token) return;
     const note = approve ? prompt("Ghi chú (tuỳ chọn):", "Đã chuyển khoản") : prompt("Lý do từ chối?");
     if (approve === false && !note) return;
+    let payoutReference: string | null = null;
+    if (approve) {
+      payoutReference = prompt("Mã giao dịch / tham chiếu khi chuyển tiền (tuỳ chọn):", "") || null;
+    }
     try {
       await apiFetch(`/api/admin/withdrawals/${id}/process`, {
         method: "POST",
         token,
-        body: JSON.stringify({ approve, adminNote: note ?? "" }),
+        body: JSON.stringify({ approve, adminNote: note ?? "", payoutReference }),
       });
       await reload(token, tab);
     } catch (e) {
@@ -161,7 +165,16 @@ export function AdminFinanceClient() {
                   <td className="px-4 py-3 font-medium text-text">@{w.sellerUsername}</td>
                   <td className="num px-4 py-3 text-right font-semibold text-text">{formatVND(w.amount)}</td>
                   <td className="px-4 py-3 text-text-muted">{w.method}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-text-muted">{w.account}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs text-text">{w.account}</div>
+                    {w.cryptoNetwork && <div className="text-[10px] text-text-muted">Mạng: {w.cryptoNetwork}</div>}
+                    {(w.method === "Bank" || w.method === "Momo") && w.holderMatchesKyc != null && (
+                      w.holderMatchesKyc
+                        ? <div className="text-[10px] text-success">✓ tên khớp KYC</div>
+                        : <div className="text-[10px] text-warning">⚠ tên lệch KYC</div>
+                    )}
+                    {w.payoutReference && <div className="text-[10px] text-text-muted">ref: {w.payoutReference}</div>}
+                  </td>
                   <td className="px-4 py-3 text-xs text-text-muted">{w.note ?? "—"}</td>
                   <td className="px-4 py-3 text-center"><Badge tone={tone[w.status] ?? "muted"}>{w.status}</Badge></td>
                   <td className="px-4 py-3 text-right text-xs text-text-muted">{formatRelativeTime(w.createdAt)}</td>

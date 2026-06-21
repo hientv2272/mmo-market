@@ -21,6 +21,32 @@ export type ApiSellerSummary = {
   trustScore: number;
   joinedAt: string;
   responseTime?: string | null;
+  bio?: string | null;
+  logoUrl?: string | null;
+  bannerUrl?: string | null;
+  contactEmail?: string | null;
+  contactZalo?: string | null;
+  contactTelegram?: string | null;
+  warrantyPolicy?: string | null;
+  returnPolicy?: string | null;
+  isOnVacation?: boolean;
+  vacationMessage?: string | null;
+};
+
+export type ApiShopSettings = {
+  displayName: string;
+  avatarColor: string;
+  bio?: string | null;
+  responseTime?: string | null;
+  logoUrl?: string | null;
+  bannerUrl?: string | null;
+  contactEmail?: string | null;
+  contactZalo?: string | null;
+  contactTelegram?: string | null;
+  warrantyPolicy?: string | null;
+  returnPolicy?: string | null;
+  isOnVacation: boolean;
+  vacationMessage?: string | null;
 };
 
 export type ApiProductListItem = {
@@ -166,6 +192,12 @@ export type ApiUsdtCheckResult = {
   alreadyPaid?: boolean;
 };
 
+// Kết quả poll chủ động trạng thái thanh toán MoMo (momo-check).
+export type ApiMoMoCheckResult = {
+  done: boolean;
+  status: string;
+};
+
 export type ApiWalletTxn = {
   id: string;
   type: string;
@@ -264,6 +296,40 @@ export type ApiSellerWithdraw = {
   adminNote?: string | null;
   createdAt: string;
   processedAt?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  cryptoNetwork?: string | null;
+  walletAddress?: string | null;
+  holderMatchesKyc?: boolean | null;
+  payoutReference?: string | null;
+};
+
+export type ApiPayoutMethod = {
+  id: string;
+  type: string; // Bank / Momo / Usdt
+  label: string;
+  bankBin?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  cryptoNetwork?: string | null;
+  walletAddress?: string | null;
+  isDefault: boolean;
+  holderMatchesKyc: boolean;
+  createdAt: string;
+};
+
+export type ApiPayoutMethodSave = {
+  type: string;
+  label?: string;
+  bankBin?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  cryptoNetwork?: string | null;
+  walletAddress?: string | null;
+  isDefault: boolean;
 };
 
 export type ApiSellerDashboard = {
@@ -276,6 +342,10 @@ export type ApiSellerDashboard = {
   pendingWithdrawals: number;
   availableBalance: number;
   trustScore: number;
+  minWithdraw: number;
+  maxWithdraw: number;
+  kycVerified: boolean;
+  kycFullName?: string | null;
 };
 
 export type ApiAdminOrderLine = {
@@ -347,6 +417,14 @@ export type ApiAdminWithdraw = {
   adminNote?: string | null;
   createdAt: string;
   processedAt?: string | null;
+  bankBin?: string | null;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  accountHolder?: string | null;
+  cryptoNetwork?: string | null;
+  walletAddress?: string | null;
+  holderMatchesKyc?: boolean | null;
+  payoutReference?: string | null;
 };
 
 export type ApiAdminMetrics = {
@@ -594,6 +672,11 @@ export type ApiSystemSettings = {
   disputeSlaHours: number;
   kycRequiredToSell: boolean;
   enabledPayments: string[];
+  trustBadgePrice: number;
+  trustBadgeMinReviews: number;
+  trustBadgeMinRating: number;
+  boostDurationHours: number;
+  boostPaidPrice: number;
 };
 
 export type ApiFeeConfig = {
@@ -706,4 +789,15 @@ export type ApiBoostInfo = {
   remaining: number;
   durationHours: number;
   paidPrice: number;
+};
+
+export type ApiBadgeInfo = {
+  price: number;
+  minReviews: number;
+  minRating: number;
+  reviewCount: number;
+  rating: number;
+  eligible: boolean;
+  durationMonths: number;
+  activeUntil: string | null;
 };

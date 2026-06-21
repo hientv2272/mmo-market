@@ -80,10 +80,7 @@ export function SellerProductsClient() {
   };
 
   useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
@@ -190,7 +187,7 @@ export function SellerProductsClient() {
 
   const isBoosted = (p: ApiSellerProduct) => !!p.boostedUntil && new Date(p.boostedUntil).getTime() > Date.now();
 
-  if (authLoading || loading) {
+  if (authLoading || (token && loading)) {
     return (
       <DashboardLayout variant="seller" groups={sellerNav} title="Sản phẩm" subtitle="Đang tải...">
         <div className="grid place-items-center py-20">

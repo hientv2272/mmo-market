@@ -43,10 +43,7 @@ export function SellerDashboardClient() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
     Promise.all([
       apiFetch<ApiSellerDashboard>("/api/seller/dashboard", { token }),
       apiFetch<ApiSellerProduct[]>("/api/seller/products", { token }),
@@ -61,7 +58,7 @@ export function SellerDashboardClient() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  if (authLoading || loading) {
+  if (authLoading || (token && loading)) {
     return (
       <DashboardLayout variant="seller" groups={sellerNav} title="Kênh người bán" subtitle="Đang tải...">
         <div className="grid place-items-center py-20">

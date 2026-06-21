@@ -66,6 +66,7 @@ const TXN_TYPE_LABEL: Record<string, string> = {
   Bonus: "Khuyến mãi",
   Deposit: "Cọc đăng tin",
   DepositRefund: "Hoàn cọc",
+  RevenueToWallet: "Doanh thu vào ví",
 };
 
 const TXN_STATUS_LABEL: Record<string, string> = {
@@ -83,6 +84,7 @@ const TXN_TYPE_ICON: Record<string, React.ReactNode> = {
   Bonus: <Star className="size-3.5" />,
   Deposit: <ArrowUpFromLine className="size-3.5" />,
   DepositRefund: <ArrowDownLeft className="size-3.5" />,
+  RevenueToWallet: <ArrowDownLeft className="size-3.5" />,
 };
 
 export function WalletClient() {
@@ -144,7 +146,7 @@ export function WalletClient() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("sepay") !== "cancel") return;
     const code = params.get("code");
-    window.history.replaceState({}, "", "/account/wallet");
+    window.history.replaceState({}, "", window.location.pathname);
     if (code) {
       apiFetch<ApiWalletState>("/api/wallet/topup/cancel", {
         method: "POST",
@@ -281,6 +283,7 @@ export function WalletClient() {
           momoResult={momoModal.result}
           token={token}
           statusUrl={`/api/wallet/topup/${momoModal.intent.id}`}
+          checkUrl={`/api/wallet/topup/${momoModal.intent.id}/momo-check`}
           subjectLabel="Nạp ví"
           successText="Đang cập nhật số dư…"
           onSuccess={() => settleTopup(true)}

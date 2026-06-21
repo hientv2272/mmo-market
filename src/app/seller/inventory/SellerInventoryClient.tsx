@@ -28,10 +28,7 @@ export function SellerInventoryClient() {
   const [editBusy, setEditBusy] = useState(false);
 
   useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
     apiFetch<ApiSellerProduct[]>("/api/seller/products", { token })
       .then((p) => {
         setProducts(p);
@@ -131,7 +128,7 @@ export function SellerInventoryClient() {
     }
   };
 
-  if (authLoading || loading) {
+  if (authLoading || (token && loading)) {
     return (
       <DashboardLayout variant="seller" groups={sellerNav} title="Kho auto-delivery" subtitle="Đang tải...">
         <div className="grid place-items-center py-20"><Loader2 className="size-6 animate-spin text-text-muted" /></div>

@@ -68,6 +68,15 @@ function mapSeller(s: ApiSellerSummary): Seller {
     kycStatus: (kyc === "approved" || kyc === "pending" || kyc === "rejected" ? kyc : "approved") as Seller["kycStatus"],
     trustScore: s.trustScore,
     responseTime: s.responseTime ?? undefined,
+    logoUrl: s.logoUrl ?? undefined,
+    bannerUrl: s.bannerUrl ?? undefined,
+    contactEmail: s.contactEmail ?? undefined,
+    contactZalo: s.contactZalo ?? undefined,
+    contactTelegram: s.contactTelegram ?? undefined,
+    warrantyPolicy: s.warrantyPolicy ?? undefined,
+    returnPolicy: s.returnPolicy ?? undefined,
+    isOnVacation: s.isOnVacation ?? false,
+    vacationMessage: s.vacationMessage ?? undefined,
   };
 }
 

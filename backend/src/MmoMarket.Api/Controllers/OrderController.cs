@@ -41,6 +41,24 @@ public class OrderController : ControllerBase
         return await _momo.CreatePaymentAsync(id, order.Total, order.Code);
     }
 
+    /// <summary>Modal poll endpoint: tra trạng thái đơn ở MoMo (query API), tự xác nhận nếu đã thu tiền.</summary>
+    [HttpPost("{id:guid}/momo-check")]
+    public async Task<IActionResult> MomoCheck(Guid id, CancellationToken ct)
+    {
+        var order = await _svc.GetByIdAsync(Uid, id, ct)
+            ?? throw new AppException("Không tìm thấy đơn", 404);
+        if (order.Status != "PendingPayment") return Ok(new { done = true, status = order.Status });
+
+        var q = await _momo.QueryTransactionAsync(id, ct);
+        if (q.Found && q.Paid)
+        {
+            if (await _svc.ConfirmExternalPaymentAsync(id, q.Amount, ct))
+                return Ok(new { done = true, status = "CAPTURED" });
+            return Ok(new { done = false, status = "AMOUNT_MISMATCH" });
+        }
+        return Ok(new { done = false, status = "PENDING" });
+    }
+
     [HttpPost("{id:guid}/zalopay-pay")]
     public async Task<ZaloPayResult> ZaloPayPay(Guid id, CancellationToken ct)
     {

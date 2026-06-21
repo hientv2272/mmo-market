@@ -15,6 +15,7 @@ export const sellerNav: NavGroup[] = [
     items: [
       { href: "/seller/finance", label: "Doanh thu", icon: "bar" },
       { href: "/seller/withdraw", label: "Rút tiền", icon: "arrowDown" },
+      { href: "/seller/wallet", label: "Nạp ví", icon: "wallet" },
       { href: "/seller/plan", label: "Gói thành viên", icon: "crown" },
       { href: "/seller/coupons", label: "Mã giảm giá", icon: "ticket" },
     ],

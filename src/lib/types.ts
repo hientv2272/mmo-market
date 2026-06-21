@@ -57,6 +57,15 @@ export interface Seller {
   responseTime?: string;
   kycStatus: "pending" | "approved" | "rejected";
   trustScore?: number;
+  logoUrl?: string;
+  bannerUrl?: string;
+  contactEmail?: string;
+  contactZalo?: string;
+  contactTelegram?: string;
+  warrantyPolicy?: string;
+  returnPolicy?: string;
+  isOnVacation?: boolean;
+  vacationMessage?: string;
 }
 
 export interface Product {

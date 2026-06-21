@@ -457,6 +457,48 @@ public static class Seeder
         await AddColumnIfMissingAsync(db, "Banners", "ViewCount", "INTEGER NOT NULL DEFAULT 0", ct);
         await AddColumnIfMissingAsync(db, "Banners", "CostModel", "TEXT NOT NULL DEFAULT 'none'", ct);
         await AddColumnIfMissingAsync(db, "Banners", "Rate", "TEXT NOT NULL DEFAULT '0'", ct);
+
+        // Rút tiền: thông tin nhận tiền có cấu trúc (snapshot) + đối soát
+        await AddColumnIfMissingAsync(db, "WithdrawRequests", "BankBin", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "WithdrawRequests", "BankName", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "WithdrawRequests", "AccountNumber", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "WithdrawRequests", "AccountHolder", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "WithdrawRequests", "CryptoNetwork", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "WithdrawRequests", "WalletAddress", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "WithdrawRequests", "HolderMatchesKyc", "INTEGER NULL", ct);
+        await AddColumnIfMissingAsync(db, "WithdrawRequests", "PayoutReference", "TEXT NULL", ct);
+
+        // Cài đặt gian hàng (seller settings)
+        await AddColumnIfMissingAsync(db, "Sellers", "LogoUrl", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "BannerUrl", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "ContactEmail", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "ContactZalo", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "ContactTelegram", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "WarrantyPolicy", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "ReturnPolicy", "TEXT NULL", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "IsOnVacation", "INTEGER NOT NULL DEFAULT 0", ct);
+        await AddColumnIfMissingAsync(db, "Sellers", "VacationMessage", "TEXT NULL", ct);
+
+        // Sổ tài khoản nhận tiền đã lưu của seller
+        await db.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS SellerPayoutMethods (
+                Id TEXT NOT NULL CONSTRAINT PK_SellerPayoutMethods PRIMARY KEY,
+                SellerUserId TEXT NOT NULL,
+                Type TEXT NOT NULL,
+                Label TEXT NOT NULL,
+                BankBin TEXT NULL,
+                BankName TEXT NULL,
+                AccountNumber TEXT NULL,
+                AccountHolder TEXT NULL,
+                CryptoNetwork TEXT NULL,
+                WalletAddress TEXT NULL,
+                IsDefault INTEGER NOT NULL DEFAULT 0,
+                HolderMatchesKyc INTEGER NOT NULL DEFAULT 0,
+                CreatedAt TEXT NOT NULL,
+                UpdatedAt TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS IX_SellerPayoutMethods_SellerUserId ON SellerPayoutMethods(SellerUserId);
+        ", ct);
     }
 
     /// <summary>Thêm cột vào bảng nếu chưa tồn tại (idempotent cho SQLite).</summary>

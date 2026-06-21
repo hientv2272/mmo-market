@@ -39,6 +39,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<FeeConfig> FeeConfigs => Set<FeeConfig>();
     public DbSet<SellerPlan> SellerPlans => Set<SellerPlan>();
     public DbSet<BoostLog> BoostLogs => Set<BoostLog>();
+    public DbSet<SellerPayoutMethod> SellerPayoutMethods => Set<SellerPayoutMethod>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -124,6 +125,12 @@ public class AppDbContext : DbContext, IAppDbContext
         {
             e.Property(x => x.Amount).HasColumnType("decimal(18,2)");
             e.HasOne(x => x.SellerUser).WithMany().HasForeignKey(x => x.SellerUserId);
+        });
+
+        b.Entity<SellerPayoutMethod>(e =>
+        {
+            e.HasIndex(x => x.SellerUserId);
+            e.HasOne(x => x.SellerUser).WithMany().HasForeignKey(x => x.SellerUserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<WishlistItem>(e =>

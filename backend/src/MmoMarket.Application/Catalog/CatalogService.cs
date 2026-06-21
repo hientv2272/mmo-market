@@ -23,7 +23,8 @@ public class CatalogService
     public async Task<ProductListResponse> ListAsync(string? category, string? sort, int page, int pageSize, CancellationToken ct, string? q = null)
     {
         var now = DateTime.UtcNow;
-        var query = _db.Products.Include(p => p.Seller).AsQueryable();
+        // Ẩn sản phẩm của seller đang tạm nghỉ khỏi marketplace.
+        var query = _db.Products.Include(p => p.Seller).Where(p => p.Seller!.IsOnVacation == false);
         if (!string.IsNullOrWhiteSpace(category) && category != "bestseller")
             query = query.Where(p => p.CategorySlug == category);
         if (!string.IsNullOrWhiteSpace(q))
@@ -85,6 +86,7 @@ public class CatalogService
     public async Task<SellerSummaryDto[]> GetSellersAsync(CancellationToken ct)
     {
         var sellers = await _db.Sellers.Include(s => s.User)
+            .Where(s => s.IsOnVacation == false)
             .OrderByDescending(s => s.TrustScore).ThenByDescending(s => s.TotalSold).ToListAsync(ct);
         return sellers.Select(MapSeller).ToArray();
     }
@@ -112,7 +114,9 @@ public class CatalogService
         s.Id, s.Username, s.DisplayName, s.AvatarColor, s.Rating, s.ReviewCount,
         s.TotalSold, s.Badge, s.User?.KycStatus.ToString() ?? "None", s.TrustScore,
         s.TrustBadgeUntil.HasValue && s.TrustBadgeUntil.Value > DateTime.UtcNow,
-        s.JoinedAt, s.ResponseTime);
+        s.JoinedAt, s.ResponseTime, s.Bio, s.LogoUrl, s.BannerUrl,
+        s.ContactEmail, s.ContactZalo, s.ContactTelegram, s.WarrantyPolicy, s.ReturnPolicy,
+        s.IsOnVacation, s.VacationMessage);
 
     public static string[] DeserializeArr(string json)
     {

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { MessageCircle, Star, ShieldCheck, Award, Calendar, Users } from "lucide-react";
+import { MessageCircle, Star, ShieldCheck, Award, Calendar, Users, Plane, Mail, Send } from "lucide-react";
 import { ProductCard } from "@/components/ProductCard";
 import { SiteShell } from "@/components/SiteShell";
 import { Badge } from "@/components/ui/Badge";
@@ -29,20 +29,43 @@ export default async function SellerProfilePage({
     <SiteShell>
       <div
         className="relative h-48 w-full overflow-hidden md:h-56"
-        style={{
-          background: `linear-gradient(135deg, ${seller.avatarColor}, ${seller.avatarColor}80)`,
-        }}
+        style={
+          seller.bannerUrl
+            ? undefined
+            : { background: `linear-gradient(135deg, ${seller.avatarColor}, ${seller.avatarColor}80)` }
+        }
       >
-        <div className="absolute inset-0 bg-dots opacity-30" />
+        {seller.bannerUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={seller.bannerUrl} alt={`Ảnh bìa ${seller.displayName}`} className="size-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 bg-dots opacity-30" />
+        )}
       </div>
 
       <div className="mx-auto max-w-7xl px-4">
+        {seller.isOnVacation && (
+          <div className="mt-4 flex items-start gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+            <Plane className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <p className="font-semibold">Shop đang tạm nghỉ</p>
+              <p className="mt-0.5 text-warning/90">
+                {seller.vacationMessage || "Gian hàng tạm ngừng nhận đơn mới. Vui lòng quay lại sau."}
+              </p>
+            </div>
+          </div>
+        )}
         <div className="-mt-16 flex flex-col items-start gap-4 md:flex-row md:items-end">
           <div
-            className="grid size-28 shrink-0 place-items-center rounded-3xl border-4 border-bg text-3xl font-extrabold text-white shadow-2xl md:size-32"
-            style={{ background: seller.avatarColor }}
+            className="grid size-28 shrink-0 place-items-center overflow-hidden rounded-3xl border-4 border-bg text-3xl font-extrabold text-white shadow-2xl md:size-32"
+            style={seller.logoUrl ? undefined : { background: seller.avatarColor }}
           >
-            {seller.username[0].toUpperCase()}
+            {seller.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={seller.logoUrl} alt={seller.displayName} className="size-full object-cover" />
+            ) : (
+              seller.username[0].toUpperCase()
+            )}
           </div>
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -119,27 +142,65 @@ export default async function SellerProfilePage({
 
         {/* About */}
         <section className="mt-10 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-border bg-bg-card p-5 md:col-span-2">
-            <h3 className="text-base font-bold text-text">Giới thiệu</h3>
-            <p className="mt-2 text-sm leading-7 text-text-muted">
-              {seller.bio ??
-                "Shop chuyên cung cấp tài khoản số chất lượng cao, bảo hành dài hạn. Đã KYC đầy đủ và phục vụ hàng nghìn khách hàng. Cam kết hỗ trợ trong vòng 30 phút trong giờ hành chính."}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2 text-xs">
-              <Badge tone="brand" icon={<Award className="size-3" />}>Top 1% sàn</Badge>
-              <Badge tone="success">100% đơn auto-deliv</Badge>
-              <Badge tone="accent">Bảo hành lên 60 ngày</Badge>
+          <div className="space-y-4 md:col-span-2">
+            <div className="rounded-2xl border border-border bg-bg-card p-5">
+              <h3 className="text-base font-bold text-text">Giới thiệu</h3>
+              <p className="mt-2 whitespace-pre-line text-sm leading-7 text-text-muted">
+                {seller.bio?.trim() ||
+                  "Shop chưa cập nhật phần giới thiệu."}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                {seller.badge === "top" && (
+                  <Badge tone="brand" icon={<Award className="size-3" />}>Top seller</Badge>
+                )}
+                {seller.kycStatus === "approved" && <Badge tone="success">Đã xác minh KYC</Badge>}
+              </div>
             </div>
+
+            {(seller.warrantyPolicy || seller.returnPolicy) && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {seller.warrantyPolicy && (
+                  <div className="rounded-2xl border border-border bg-bg-card p-5">
+                    <h3 className="text-base font-bold text-text">Chính sách bảo hành</h3>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-7 text-text-muted">{seller.warrantyPolicy}</p>
+                  </div>
+                )}
+                {seller.returnPolicy && (
+                  <div className="rounded-2xl border border-border bg-bg-card p-5">
+                    <h3 className="text-base font-bold text-text">Chính sách đổi trả</h3>
+                    <p className="mt-2 whitespace-pre-line text-sm leading-7 text-text-muted">{seller.returnPolicy}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-border bg-bg-card p-5">
-            <h3 className="text-base font-bold text-text">Cam kết</h3>
-            <ul className="mt-3 space-y-2 text-xs text-text-muted">
-              <li>✅ Tài khoản chính chủ, không chia sẻ</li>
-              <li>✅ Hỗ trợ chat 24/7</li>
-              <li>✅ Đổi mới nếu lỗi trong bảo hành</li>
-              <li>✅ Hoàn 100% nếu không đúng mô tả</li>
-            </ul>
+            <h3 className="text-base font-bold text-text">Liên hệ</h3>
+            {seller.contactEmail || seller.contactZalo || seller.contactTelegram ? (
+              <ul className="mt-3 space-y-2 text-sm text-text-muted">
+                {seller.contactEmail && (
+                  <li className="flex items-center gap-2">
+                    <Mail className="size-4 shrink-0 text-text-dim" />
+                    <a href={`mailto:${seller.contactEmail}`} className="break-all hover:text-brand">{seller.contactEmail}</a>
+                  </li>
+                )}
+                {seller.contactZalo && (
+                  <li className="flex items-center gap-2">
+                    <MessageCircle className="size-4 shrink-0 text-text-dim" />
+                    <span className="break-all">Zalo: {seller.contactZalo}</span>
+                  </li>
+                )}
+                {seller.contactTelegram && (
+                  <li className="flex items-center gap-2">
+                    <Send className="size-4 shrink-0 text-text-dim" />
+                    <span className="break-all">Telegram: {seller.contactTelegram}</span>
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm text-text-muted">Liên hệ shop qua nút “Nhắn tin”.</p>
+            )}
           </div>
         </section>
 

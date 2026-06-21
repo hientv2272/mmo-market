@@ -26,7 +26,8 @@ public record AdminOrderDto(
     string? Note, DateTime CreatedAt, DateTime? PaidAt, DateTime? DeliveredAt, DateTime? CompletedAt,
     AdminOrderLineDto[] Lines);
 public record AdminProductDto(Guid Id, string Slug, string Title, string CategorySlug, decimal Price, int Stock, int Sold, double Rating, string Status, string SellerUsername, DateTime CreatedAt);
-public record AdminWithdrawDto(Guid Id, Guid SellerUserId, string SellerUsername, decimal Amount, string Method, string Account, string Status, string? Note, string? AdminNote, DateTime CreatedAt, DateTime? ProcessedAt);
+public record AdminWithdrawDto(Guid Id, Guid SellerUserId, string SellerUsername, decimal Amount, string Method, string Account, string Status, string? Note, string? AdminNote, DateTime CreatedAt, DateTime? ProcessedAt,
+    string? BankBin, string? BankName, string? AccountNumber, string? AccountHolder, string? CryptoNetwork, string? WalletAddress, bool? HolderMatchesKyc, string? PayoutReference);
 public record AdminWalletUserDto(Guid Id, string Email, string Username, string DisplayName, string Role, decimal WalletBalance, int LoyaltyPoints, int TxnCount, DateTime CreatedAt);
 public record AdminWalletOverview(decimal TotalBalance, int TotalUsers, decimal TotalTopup, decimal TotalSpent, int PendingTopups);
 public record AdminTopupDto(decimal Amount, string Note);
@@ -55,7 +56,9 @@ public record SystemSettingsDto(
     string SiteName, string SiteDescription, string ContactEmail, string ContactPhone,
     bool MaintenanceMode, string MaintenanceMessage, bool RegistrationEnabled, decimal WelcomeBonus,
     decimal MinWithdraw, decimal MaxWithdraw, int EscrowReleaseDays, int DisputeSlaHours, bool KycRequiredToSell,
-    string[] EnabledPayments);
+    string[] EnabledPayments,
+    decimal TrustBadgePrice, int TrustBadgeMinReviews, decimal TrustBadgeMinRating,
+    int BoostDurationHours, decimal BoostPaidPrice);
 
 public record FeeConfigDto(decimal FeePercent);
 public record FinanceReconciliationDto(
@@ -217,12 +220,10 @@ public class AdminService
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<WithdrawStatus>(status, true, out var s))
             query = query.Where(w => w.Status == s);
         var ws = await query.OrderByDescending(w => w.CreatedAt).Take(200).ToListAsync(ct);
-        return ws.Select(w => new AdminWithdrawDto(
-            w.Id, w.SellerUserId, w.SellerUser?.Username ?? "", w.Amount, w.Method, w.Account,
-            w.Status.ToString(), w.Note, w.AdminNote, w.CreatedAt, w.ProcessedAt)).ToArray();
+        return ws.Select(MapAdminWithdraw).ToArray();
     }
 
-    public async Task<AdminWithdrawDto> ProcessWithdrawAsync(Guid id, bool approve, string? adminNote, CancellationToken ct)
+    public async Task<AdminWithdrawDto> ProcessWithdrawAsync(Guid id, bool approve, string? adminNote, string? payoutReference, CancellationToken ct)
     {
         var w = await _db.WithdrawRequests.Include(x => x.SellerUser).FirstOrDefaultAsync(x => x.Id == id, ct)
             ?? throw new AppException("Không tìm thấy yêu cầu", 404);
@@ -232,18 +233,25 @@ public class AdminService
         w.ProcessedAt = DateTime.UtcNow;
         if (approve)
         {
+            w.PayoutReference = string.IsNullOrWhiteSpace(payoutReference) ? null : payoutReference.Trim();
             _db.WalletTxns.Add(new WalletTxn
             {
                 UserId = w.SellerUserId,
                 Type = WalletTxnType.Withdraw,
                 Amount = -w.Amount,
                 Status = WalletTxnStatus.Completed,
-                Note = $"Rút tiền — {w.Method} {w.Account}",
+                Note = $"Rút tiền — {w.Method} {w.Account}" + (w.PayoutReference != null ? $" (ref: {w.PayoutReference})" : ""),
             });
         }
         await _db.SaveChangesAsync(ct);
-        return new AdminWithdrawDto(w.Id, w.SellerUserId, w.SellerUser?.Username ?? "", w.Amount, w.Method, w.Account, w.Status.ToString(), w.Note, w.AdminNote, w.CreatedAt, w.ProcessedAt);
+        return MapAdminWithdraw(w);
     }
+
+    private static AdminWithdrawDto MapAdminWithdraw(WithdrawRequest w) => new(
+        w.Id, w.SellerUserId, w.SellerUser?.Username ?? "", w.Amount, w.Method, w.Account,
+        w.Status.ToString(), w.Note, w.AdminNote, w.CreatedAt, w.ProcessedAt,
+        w.BankBin, w.BankName, w.AccountNumber, w.AccountHolder, w.CryptoNetwork, w.WalletAddress,
+        w.HolderMatchesKyc, w.PayoutReference);
 
     public async Task<AdminWalletOverview> GetWalletOverviewAsync(CancellationToken ct)
     {
@@ -772,7 +780,12 @@ public class AdminService
             I(all, ConfigKeys.EscrowReleaseDays, 3),
             I(all, ConfigKeys.DisputeSlaHours,   72),
             B(all, ConfigKeys.KycRequiredToSell, true),
-            payments.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            payments.Split(',', StringSplitOptions.RemoveEmptyEntries),
+            D(all, ConfigKeys.TrustBadgePrice,      200_000m),
+            I(all, ConfigKeys.TrustBadgeMinReviews, 50),
+            D(all, ConfigKeys.TrustBadgeMinRating,  4.5m),
+            I(all, ConfigKeys.BoostDurationHours,   24),
+            D(all, ConfigKeys.BoostPaidPrice,       20_000m)
         );
     }
 
@@ -794,6 +807,11 @@ public class AdminService
             [ConfigKeys.DisputeSlaHours]    = dto.DisputeSlaHours.ToString(),
             [ConfigKeys.KycRequiredToSell]  = dto.KycRequiredToSell.ToString().ToLowerInvariant(),
             [ConfigKeys.EnabledPayments]    = string.Join(",", dto.EnabledPayments),
+            [ConfigKeys.TrustBadgePrice]      = dto.TrustBadgePrice.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            [ConfigKeys.TrustBadgeMinReviews] = dto.TrustBadgeMinReviews.ToString(),
+            [ConfigKeys.TrustBadgeMinRating]  = dto.TrustBadgeMinRating.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            [ConfigKeys.BoostDurationHours]   = dto.BoostDurationHours.ToString(),
+            [ConfigKeys.BoostPaidPrice]       = dto.BoostPaidPrice.ToString(System.Globalization.CultureInfo.InvariantCulture),
         }, ct);
         return dto;
     }

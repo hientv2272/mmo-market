@@ -53,6 +53,11 @@ public class OrderService
             .ToListAsync(ct);
         if (cartItems.Count == 0) throw new AppException("Giỏ hàng trống");
 
+        // Chặn mua khi người bán đang tạm nghỉ (vacation mode).
+        var vacationSeller = cartItems.FirstOrDefault(c => c.Product!.Seller!.IsOnVacation)?.Product!.Seller;
+        if (vacationSeller != null)
+            throw new AppException($"Người bán \"{vacationSeller.DisplayName}\" đang tạm nghỉ, không thể đặt đơn lúc này.");
+
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct)
             ?? throw new AppException("User không tồn tại", 404);
 

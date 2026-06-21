@@ -1,5 +1,6 @@
 "use client";
 import { useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
@@ -38,12 +39,12 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
             Trang này chỉ dành cho tài khoản Admin. Bạn đang đăng nhập với vai trò{" "}
             <span className="font-semibold text-text">{user.role}</span>.
           </p>
-          <a
+          <Link
             href="/"
             className="mt-6 inline-block rounded-full bg-brand px-6 py-2 text-sm font-semibold text-white hover:bg-brand/90"
           >
             Về trang chủ
-          </a>
+          </Link>
         </div>
       </div>
     );

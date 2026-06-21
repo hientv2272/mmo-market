@@ -33,6 +33,7 @@ import { cn } from "@/lib/cn";
 import { Logo } from "./Logo";
 import { useAuth } from "@/lib/AuthContext";
 import { apiFetch } from "@/lib/api";
+import { formatVND } from "@/lib/format";
 import type { ApiAdminMetrics } from "@/lib/apiTypes";
 
 const iconMap: Record<string, LucideIcon> = {
@@ -88,7 +89,10 @@ export function DashboardLayout({
   variant?: "buyer" | "seller" | "admin";
 }) {
   const pathname = usePathname();
-  const { user, token, logout } = useAuth();
+  const { user, token, logout, refresh } = useAuth();
+
+  // Làm mới số dư ví mỗi khi vào khu vực dashboard (sau khi nạp/mua gói/boost).
+  useEffect(() => { refresh(); }, [refresh]);
 
   // Số đếm thật cho badge sidebar (đơn cần xử lý / khiếu nại mở). Override theo href.
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -218,6 +222,16 @@ export function DashboardLayout({
                 <p className="truncate text-[11px] text-text-muted">{user.email}</p>
               </div>
             </div>
+          )}
+          {user && variant !== "admin" && (
+            <Link
+              href={variant === "seller" ? "/seller/wallet" : "/account/wallet"}
+              className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-text-muted hover:bg-bg-elev hover:text-text"
+            >
+              <Wallet className="size-4 text-accent" />
+              <span className="flex-1">Số dư ví</span>
+              <span className="font-semibold text-text">{formatVND(user.walletBalance)}</span>
+            </Link>
           )}
           <Link
             href="/"

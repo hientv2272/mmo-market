@@ -17,6 +17,17 @@ public class Seller : Entity
     public string? ResponseTime { get; set; }
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
 
+    // Cài đặt gian hàng (seller settings)
+    public string? LogoUrl { get; set; }            // data URL (base64) — như Product.ImageUrl
+    public string? BannerUrl { get; set; }          // ảnh bìa gian hàng
+    public string? ContactEmail { get; set; }
+    public string? ContactZalo { get; set; }
+    public string? ContactTelegram { get; set; }
+    public string? WarrantyPolicy { get; set; }     // chính sách bảo hành
+    public string? ReturnPolicy { get; set; }       // chính sách đổi trả
+    public bool IsOnVacation { get; set; }          // chế độ tạm nghỉ — ẩn shop & chặn đơn mới
+    public string? VacationMessage { get; set; }    // thông báo hiển thị khi tạm nghỉ
+
     // Gói thành viên (P1.2)
     public string PlanCode { get; set; } = "free";     // free | basic | pro | vip
     public DateTime? PlanExpiresAt { get; set; }        // null hoặc đã quá hạn → coi như Free

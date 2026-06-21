@@ -23,6 +23,13 @@ public class SellerController : ControllerBase
     [HttpGet("dashboard")]
     public Task<SellerDashboardDto> Dashboard(CancellationToken ct) => _svc.GetDashboardAsync(Uid, ct);
 
+    [HttpGet("shop-settings")]
+    public Task<ShopSettingsDto> ShopSettings(CancellationToken ct) => _svc.GetShopSettingsAsync(Uid, ct);
+
+    [HttpPut("shop-settings")]
+    public Task<ShopSettingsDto> UpdateShopSettings([FromBody] ShopSettingsUpdateDto dto, CancellationToken ct)
+        => _svc.UpdateShopSettingsAsync(Uid, dto, ct);
+
     [HttpGet("products")]
     public Task<SellerProductDto[]> Products(CancellationToken ct) => _svc.ListMyProductsAsync(Uid, ct);
 
@@ -44,6 +51,9 @@ public class SellerController : ControllerBase
 
     [HttpPost("products/{id:guid}/boost")]
     public Task<SellerProductDto> Boost(Guid id, [FromQuery] bool pay, CancellationToken ct) => _svc.BoostProductAsync(Uid, id, pay, ct);
+
+    [HttpGet("badge-info")]
+    public Task<BadgeInfoDto> BadgeInfo(CancellationToken ct) => _svc.GetTrustBadgeInfoAsync(Uid, ct);
 
     [HttpPost("trust-badge")]
     public Task<CurrentPlanDto> BuyTrustBadge(CancellationToken ct) => _svc.BuyTrustBadgeAsync(Uid, ct);
@@ -116,6 +126,26 @@ public class SellerController : ControllerBase
 
     [HttpPost("withdraws")]
     public Task<WithdrawDto> CreateWithdraw([FromBody] WithdrawCreateDto dto, CancellationToken ct) => _svc.CreateWithdrawAsync(Uid, dto, ct);
+
+    // ── Sổ tài khoản nhận tiền ───────────────────────────────────────────────
+    [HttpGet("payout-methods")]
+    public Task<PayoutMethodDto[]> PayoutMethods(CancellationToken ct) => _svc.ListPayoutMethodsAsync(Uid, ct);
+
+    [HttpPost("payout-methods")]
+    public Task<PayoutMethodDto> CreatePayoutMethod([FromBody] PayoutMethodSaveDto dto, CancellationToken ct) => _svc.CreatePayoutMethodAsync(Uid, dto, ct);
+
+    [HttpPut("payout-methods/{id:guid}")]
+    public Task<PayoutMethodDto> UpdatePayoutMethod(Guid id, [FromBody] PayoutMethodSaveDto dto, CancellationToken ct) => _svc.UpdatePayoutMethodAsync(Uid, id, dto, ct);
+
+    [HttpDelete("payout-methods/{id:guid}")]
+    public async Task<IActionResult> DeletePayoutMethod(Guid id, CancellationToken ct)
+    {
+        await _svc.DeletePayoutMethodAsync(Uid, id, ct);
+        return NoContent();
+    }
+
+    [HttpPost("payout-methods/{id:guid}/default")]
+    public Task<PayoutMethodDto> SetDefaultPayoutMethod(Guid id, CancellationToken ct) => _svc.SetDefaultPayoutMethodAsync(Uid, id, ct);
 
     // ── Gói thành viên (P1.2) ───────────────────────────────────────────────
     [HttpGet("plans")]

@@ -35,10 +35,7 @@ export function AccountOverviewClient() {
       router.replace("/admin");
       return;
     }
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
     Promise.all([
       apiFetch<ApiOrder[]>("/api/orders", { token }),
       apiFetch<ApiWalletState>("/api/wallet", { token }),
@@ -48,7 +45,7 @@ export function AccountOverviewClient() {
       .finally(() => setLoading(false));
   }, [token, authLoading, user, router]);
 
-  if (authLoading || loading) {
+  if (authLoading || (token && loading)) {
     return <div className="grid place-items-center py-20"><Loader2 className="size-6 animate-spin text-text-muted" /></div>;
   }
 

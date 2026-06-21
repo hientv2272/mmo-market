@@ -100,9 +100,9 @@ public class AdminController : ControllerBase
     [HttpGet("withdrawals")]
     public Task<AdminWithdrawDto[]> Withdrawals([FromQuery] string? status, CancellationToken ct) => _svc.ListWithdrawalsAsync(status, ct);
 
-    public record ProcessWithdrawDto(bool Approve, string? AdminNote);
+    public record ProcessWithdrawDto(bool Approve, string? AdminNote, string? PayoutReference);
     [HttpPost("withdrawals/{id:guid}/process")]
-    public Task<AdminWithdrawDto> ProcessWithdraw(Guid id, [FromBody] ProcessWithdrawDto dto, CancellationToken ct) => _svc.ProcessWithdrawAsync(id, dto.Approve, dto.AdminNote, ct);
+    public Task<AdminWithdrawDto> ProcessWithdraw(Guid id, [FromBody] ProcessWithdrawDto dto, CancellationToken ct) => _svc.ProcessWithdrawAsync(id, dto.Approve, dto.AdminNote, dto.PayoutReference, ct);
 
     [HttpGet("wallets/overview")]
     public Task<AdminWalletOverview> WalletOverview(CancellationToken ct) => _svc.GetWalletOverviewAsync(ct);

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, Store } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
@@ -39,18 +40,18 @@ export function SellerGuard({ children }: { children: React.ReactNode }) {
             <span className="font-semibold text-text">{user.role}</span>.
           </p>
           <div className="mt-6 flex gap-3 justify-center">
-            <a
+            <Link
               href="/seller/onboarding"
               className="rounded-full bg-brand px-5 py-2 text-sm font-semibold text-white hover:bg-brand/90"
             >
               Đăng ký bán hàng
-            </a>
-            <a
+            </Link>
+            <Link
               href="/account"
               className="rounded-full border border-border px-5 py-2 text-sm font-semibold text-text hover:bg-bg-elev"
             >
               Tài khoản của tôi
-            </a>
+            </Link>
           </div>
         </div>
       </div>

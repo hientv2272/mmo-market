@@ -18,6 +18,9 @@ public record SellerProductDto(
 
 public record BoostInfoDto(int Quota, int Used, int Remaining, int DurationHours, decimal PaidPrice);
 
+public record BadgeInfoDto(decimal Price, int MinReviews, double MinRating, int ReviewCount, double Rating,
+    bool Eligible, int DurationMonths, DateTime? ActiveUntil);
+
 public record SellerProductCreateDto(
     string Title, string CategorySlug, decimal Price, decimal? ComparePrice, string Delivery,
     int WarrantyDays, int Stock, string ThumbnailColor, string? ThumbnailIcon, string? ImageUrl, string Description);
@@ -46,13 +49,42 @@ public record InventoryItemDto(Guid Id, string Preview, bool Reserved, bool Sold
 public record InventoryUploadDto(string[] Items);
 public record InventoryItemUpdateDto(string? Content, bool? Reserved);
 
-public record WithdrawCreateDto(decimal Amount, string Method, string Account, string? Note, string? TotpCode);
-public record WithdrawDto(Guid Id, decimal Amount, string Method, string Account, string Status, string? Note, string? AdminNote, DateTime CreatedAt, DateTime? ProcessedAt);
+public record WithdrawCreateDto(
+    decimal Amount, string Method, string? Account, string? Note, string? TotpCode,
+    Guid? PayoutMethodId,
+    string? BankBin, string? BankName, string? AccountNumber, string? AccountHolder,
+    string? CryptoNetwork, string? WalletAddress);
+
+public record WithdrawDto(
+    Guid Id, decimal Amount, string Method, string Account, string Status, string? Note, string? AdminNote,
+    DateTime CreatedAt, DateTime? ProcessedAt,
+    string? BankName, string? AccountNumber, string? AccountHolder, string? CryptoNetwork,
+    string? WalletAddress, bool? HolderMatchesKyc, string? PayoutReference);
+
+public record PayoutMethodDto(
+    Guid Id, string Type, string Label, string? BankBin, string? BankName, string? AccountNumber,
+    string? AccountHolder, string? CryptoNetwork, string? WalletAddress, bool IsDefault,
+    bool HolderMatchesKyc, DateTime CreatedAt);
+
+public record PayoutMethodSaveDto(
+    string Type, string? Label, string? BankBin, string? BankName, string? AccountNumber,
+    string? AccountHolder, string? CryptoNetwork, string? WalletAddress, bool IsDefault);
 
 public record SellerDashboardDto(
     decimal Revenue30d, int Orders30d, int ProductsActive, int ProductsPending,
     int OrdersAwaitingDelivery, int OpenDisputes, int PendingWithdrawals,
-    decimal AvailableBalance, int TrustScore);
+    decimal AvailableBalance, int TrustScore,
+    decimal MinWithdraw, decimal MaxWithdraw, bool KycVerified, string? KycFullName);
+
+public record ShopSettingsDto(
+    string DisplayName, string AvatarColor, string? Bio, string? ResponseTime,
+    string? LogoUrl, string? BannerUrl, string? ContactEmail, string? ContactZalo, string? ContactTelegram,
+    string? WarrantyPolicy, string? ReturnPolicy, bool IsOnVacation, string? VacationMessage);
+
+public record ShopSettingsUpdateDto(
+    string DisplayName, string AvatarColor, string? Bio, string? ResponseTime,
+    string? LogoUrl, string? BannerUrl, string? ContactEmail, string? ContactZalo, string? ContactTelegram,
+    string? WarrantyPolicy, string? ReturnPolicy, bool IsOnVacation, string? VacationMessage);
 
 public class SellerService
 {
@@ -99,13 +131,86 @@ public class SellerService
             .Select(l => new { Gross = l.UnitPrice * l.Quantity, l.FeeAmount })
             .ToListAsync(ct);
         var totalEarned = earnedRows.Sum(r => r.Gross - r.FeeAmount);
+        // Giữ chỗ cả yêu cầu đang chờ duyệt (Pending) để không cho rút vượt số dư khi có nhiều yêu cầu chồng nhau.
         var withdrawnList = await _db.WithdrawRequests
-            .Where(w => w.SellerUserId == userId && (w.Status == WithdrawStatus.Approved || w.Status == WithdrawStatus.Paid))
+            .Where(w => w.SellerUserId == userId && w.Status != WithdrawStatus.Rejected)
             .Select(w => w.Amount)
             .ToListAsync(ct);
         var totalWithdrawn = withdrawnList.Sum();
         var available = Math.Max(0m, totalEarned - totalWithdrawn);
-        return new SellerDashboardDto(revenue30d, orders30d, prodActive, prodPending, awaiting, openDisputes, pendingWd, available, seller.TrustScore);
+        var minWithdraw = await _config.GetDecimalAsync(ConfigKeys.MinWithdraw, 50_000m, ct);
+        var maxWithdraw = await _config.GetDecimalAsync(ConfigKeys.MaxWithdraw, 50_000_000m, ct);
+        // KYC duyệt = trạng thái trên User (nguồn chuẩn); tên lấy từ hồ sơ KYC nếu có.
+        var sellerUser = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        var kycVerified = sellerUser?.KycStatus == KycStatus.Approved;
+        var kycFullName = await GetKycFullNameAsync(userId, ct);
+        return new SellerDashboardDto(revenue30d, orders30d, prodActive, prodPending, awaiting, openDisputes, pendingWd, available, seller.TrustScore, minWithdraw, maxWithdraw, kycVerified, kycFullName);
+    }
+
+    private const int MaxImageDataUrlLength = 3_500_000; // ~2MB ảnh sau khi base64 (~33% overhead)
+
+    public async Task<ShopSettingsDto> GetShopSettingsAsync(Guid userId, CancellationToken ct)
+    {
+        var s = await GetSellerForUserAsync(userId, ct);
+        return MapShopSettings(s);
+    }
+
+    public async Task<ShopSettingsDto> UpdateShopSettingsAsync(Guid userId, ShopSettingsUpdateDto dto, CancellationToken ct)
+    {
+        var s = await GetSellerForUserAsync(userId, ct);
+
+        var displayName = (dto.DisplayName ?? "").Trim();
+        if (displayName.Length < 2) throw new AppException("Tên shop phải có ít nhất 2 ký tự.", 400);
+        if (displayName.Length > 80) throw new AppException("Tên shop tối đa 80 ký tự.", 400);
+
+        var bio = Trimmed(dto.Bio, 1000, "Mô tả shop tối đa 1000 ký tự.");
+        var warranty = Trimmed(dto.WarrantyPolicy, 2000, "Chính sách bảo hành tối đa 2000 ký tự.");
+        var ret = Trimmed(dto.ReturnPolicy, 2000, "Chính sách đổi trả tối đa 2000 ký tự.");
+        var vacationMsg = Trimmed(dto.VacationMessage, 500, "Thông báo tạm nghỉ tối đa 500 ký tự.");
+
+        ValidateImage(dto.LogoUrl, "Logo");
+        ValidateImage(dto.BannerUrl, "Ảnh bìa");
+
+        s.DisplayName = displayName;
+        s.AvatarColor = string.IsNullOrWhiteSpace(dto.AvatarColor) ? s.AvatarColor : dto.AvatarColor.Trim();
+        s.Bio = bio;
+        s.ResponseTime = Trimmed(dto.ResponseTime, 50, "Thời gian phản hồi tối đa 50 ký tự.");
+        s.LogoUrl = NullIfEmpty(dto.LogoUrl);
+        s.BannerUrl = NullIfEmpty(dto.BannerUrl);
+        s.ContactEmail = Trimmed(dto.ContactEmail, 120, "Email liên hệ quá dài.");
+        s.ContactZalo = Trimmed(dto.ContactZalo, 60, "Zalo quá dài.");
+        s.ContactTelegram = Trimmed(dto.ContactTelegram, 60, "Telegram quá dài.");
+        s.WarrantyPolicy = warranty;
+        s.ReturnPolicy = ret;
+        s.IsOnVacation = dto.IsOnVacation;
+        s.VacationMessage = vacationMsg;
+
+        await _db.SaveChangesAsync(ct);
+        return MapShopSettings(s);
+    }
+
+    private static ShopSettingsDto MapShopSettings(Seller s) => new(
+        s.DisplayName, s.AvatarColor, s.Bio, s.ResponseTime,
+        s.LogoUrl, s.BannerUrl, s.ContactEmail, s.ContactZalo, s.ContactTelegram,
+        s.WarrantyPolicy, s.ReturnPolicy, s.IsOnVacation, s.VacationMessage);
+
+    private static string? Trimmed(string? value, int max, string tooLongMsg)
+    {
+        var v = value?.Trim();
+        if (string.IsNullOrEmpty(v)) return null;
+        if (v.Length > max) throw new AppException(tooLongMsg, 400);
+        return v;
+    }
+
+    private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static void ValidateImage(string? dataUrl, string label)
+    {
+        if (string.IsNullOrWhiteSpace(dataUrl)) return;
+        if (!dataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+            throw new AppException($"{label} không hợp lệ.", 400);
+        if (dataUrl.Length > MaxImageDataUrlLength)
+            throw new AppException($"{label} quá lớn (tối đa ~2MB).", 400);
     }
 
     public async Task<SellerProductDto[]> ListMyProductsAsync(Guid userId, CancellationToken ct)
@@ -268,6 +373,16 @@ public class SellerService
     }
 
     // ── Boost / đẩy tin ───────────────────────────────────────────────────────
+    // Mốc đầu tháng theo giờ VN (UTC+7), trả về dưới dạng UTC để so sánh với CreatedAt.
+    // VD: 00:00 ngày 1 giờ VN = 17:00 ngày cuối tháng trước theo UTC.
+    private const int VnUtcOffsetHours = 7;
+    private static DateTime VnMonthStartUtc(DateTime utcNow)
+    {
+        var vnNow = utcNow.AddHours(VnUtcOffsetHours);
+        var vnMonthStart = new DateTime(vnNow.Year, vnNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        return vnMonthStart.AddHours(-VnUtcOffsetHours);
+    }
+
     public async Task<SellerProductDto> BoostProductAsync(Guid userId, Guid productId, bool payWithWallet, CancellationToken ct)
     {
         var seller = await GetSellerForUserAsync(userId, ct);
@@ -281,7 +396,7 @@ public class SellerService
             throw new AppException($"Sản phẩm đang được boost (đến {product.BoostedUntil.Value:HH:mm dd/MM})");
 
         var plan = await _plans.ResolvePlanAsync(seller, ct);
-        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var monthStart = VnMonthStartUtc(now);
         // chỉ đếm lượt boost MIỄN PHÍ (Paid=false) cho quota gói
         var usedFree = await _db.BoostLogs.CountAsync(b => b.SellerId == seller.Id && b.CreatedAt >= monthStart && !b.Paid, ct);
         var free = usedFree < plan.BoostsPerMonth;
@@ -319,7 +434,7 @@ public class SellerService
         var seller = await GetSellerForUserAsync(userId, ct);
         var plan = await _plans.ResolvePlanAsync(seller, ct);
         var now = DateTime.UtcNow;
-        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var monthStart = VnMonthStartUtc(now);
         var usedFree = await _db.BoostLogs.CountAsync(b => b.SellerId == seller.Id && b.CreatedAt >= monthStart && !b.Paid, ct);
         var hours = await _config.GetIntAsync(ConfigKeys.BoostDurationHours, 24, ct);
         var price = await _config.GetDecimalAsync(ConfigKeys.BoostPaidPrice, 20000m, ct);
@@ -327,6 +442,16 @@ public class SellerService
     }
 
     // ── Badge Uy tín (§3.4) ─────────────────────────────────────────────────────
+    public async Task<BadgeInfoDto> GetTrustBadgeInfoAsync(Guid userId, CancellationToken ct)
+    {
+        var seller = await GetSellerForUserAsync(userId, ct);
+        var minReviews = await _config.GetIntAsync(ConfigKeys.TrustBadgeMinReviews, 50, ct);
+        var minRating = (double)await _config.GetDecimalAsync(ConfigKeys.TrustBadgeMinRating, 4.5m, ct);
+        var price = await _config.GetDecimalAsync(ConfigKeys.TrustBadgePrice, 200000m, ct);
+        var eligible = seller.ReviewCount >= minReviews && seller.Rating >= minRating;
+        return new BadgeInfoDto(price, minReviews, minRating, seller.ReviewCount, seller.Rating, eligible, 12, seller.TrustBadgeUntil);
+    }
+
     public async Task<CurrentPlanDto> BuyTrustBadgeAsync(Guid userId, CancellationToken ct)
     {
         var seller = await GetSellerForUserAsync(userId, ct);
@@ -513,9 +638,13 @@ public class SellerService
 
     public async Task<WithdrawDto> CreateWithdrawAsync(Guid userId, WithdrawCreateDto dto, CancellationToken ct)
     {
-        var seller = await GetSellerForUserAsync(userId, ct);
+        await GetSellerForUserAsync(userId, ct);
         var dashboard = await GetDashboardAsync(userId, ct);
         if (dto.Amount <= 0) throw new AppException("Số tiền không hợp lệ");
+        var min = await _config.GetDecimalAsync(ConfigKeys.MinWithdraw, 50_000m, ct);
+        var max = await _config.GetDecimalAsync(ConfigKeys.MaxWithdraw, 50_000_000m, ct);
+        if (dto.Amount < min) throw new AppException($"Số tiền rút tối thiểu là {min:N0}đ");
+        if (dto.Amount > max) throw new AppException($"Số tiền rút tối đa mỗi lần là {max:N0}đ");
         if (dto.Amount > dashboard.AvailableBalance) throw new AppException($"Vượt quá số dư khả dụng ({dashboard.AvailableBalance:N0})");
         await _limits.EnsureWithdrawAllowedAsync(userId, dto.Amount, ct);
 
@@ -527,15 +656,60 @@ public class SellerService
             if (!_totp.Verify(user.TotpSecret!, dto.TotpCode))
                 throw new AppException("Mã xác thực 2FA không đúng hoặc đã hết hạn.", 400);
         }
+        // Rút về ví nội bộ → xử lý tức thì (tiền vẫn ở trong sàn, không cần admin duyệt).
+        var toWallet = string.Equals(dto.Method, "Wallet", StringComparison.OrdinalIgnoreCase);
         var w = new WithdrawRequest
         {
             SellerUserId = userId,
             Amount = dto.Amount,
-            Method = dto.Method,
-            Account = dto.Account,
             Note = dto.Note,
-            Status = WithdrawStatus.Pending,
+            Status = toWallet ? WithdrawStatus.Paid : WithdrawStatus.Pending,
+            ProcessedAt = toWallet ? DateTime.UtcNow : null,
         };
+
+        if (toWallet)
+        {
+            if (user == null) throw new AppException("User không tồn tại", 404);
+            w.Method = "Wallet";
+            w.Account = "Ví nội bộ";
+            user.WalletBalance += dto.Amount;
+            _db.WalletTxns.Add(new WalletTxn
+            {
+                UserId = userId,
+                Type = WalletTxnType.RevenueToWallet,
+                Amount = dto.Amount,
+                Status = WalletTxnStatus.Completed,
+                Note = "Chuyển doanh thu vào ví",
+            });
+            AddAudit(userId, "Seller", "withdraw_to_wallet", "WithdrawRequest", w.Id.ToString(), dto.Amount,
+                $"Rút {dto.Amount:N0}đ doanh thu vào ví nội bộ");
+        }
+        else
+        {
+            // Lấy thông tin nhận tiền: ưu tiên tài khoản đã lưu, nếu không thì nhập trực tiếp.
+            PayoutDetails d;
+            if (dto.PayoutMethodId.HasValue)
+            {
+                var m = await _db.SellerPayoutMethods.FirstOrDefaultAsync(x => x.Id == dto.PayoutMethodId.Value && x.SellerUserId == userId, ct)
+                    ?? throw new AppException("Không tìm thấy tài khoản nhận tiền đã lưu", 404);
+                d = new PayoutDetails(m.Type, m.BankBin, m.BankName, m.AccountNumber, m.AccountHolder, m.CryptoNetwork, m.WalletAddress);
+            }
+            else
+            {
+                d = ValidateAndNormalizePayout(dto.Method, dto.BankBin, dto.BankName, dto.AccountNumber, dto.AccountHolder, dto.CryptoNetwork, dto.WalletAddress);
+            }
+            var kycName = await GetKycFullNameAsync(userId, ct);
+            w.Method = d.Type;
+            w.Account = BuildAccountSummary(d);
+            w.BankBin = d.BankBin;
+            w.BankName = d.BankName;
+            w.AccountNumber = d.AccountNumber;
+            w.AccountHolder = d.AccountHolder;
+            w.CryptoNetwork = d.CryptoNetwork;
+            w.WalletAddress = d.WalletAddress;
+            w.HolderMatchesKyc = ComputeHolderMatch(d, kycName);
+        }
+
         _db.WithdrawRequests.Add(w);
         await _db.SaveChangesAsync(ct);
         return MapWithdraw(w);
@@ -546,6 +720,190 @@ public class SellerService
         var ws = await _db.WithdrawRequests.Where(w => w.SellerUserId == userId).OrderByDescending(w => w.CreatedAt).ToListAsync(ct);
         return ws.Select(MapWithdraw).ToArray();
     }
+
+    // ── Sổ tài khoản nhận tiền (payout methods) ─────────────────────────────────
+    public async Task<PayoutMethodDto[]> ListPayoutMethodsAsync(Guid userId, CancellationToken ct)
+    {
+        await GetSellerForUserAsync(userId, ct);
+        var ms = await _db.SellerPayoutMethods
+            .Where(m => m.SellerUserId == userId)
+            .OrderByDescending(m => m.IsDefault).ThenByDescending(m => m.CreatedAt)
+            .ToListAsync(ct);
+        return ms.Select(MapPayoutMethod).ToArray();
+    }
+
+    public async Task<PayoutMethodDto> CreatePayoutMethodAsync(Guid userId, PayoutMethodSaveDto dto, CancellationToken ct)
+    {
+        await GetSellerForUserAsync(userId, ct);
+        var d = ValidateAndNormalizePayout(dto.Type, dto.BankBin, dto.BankName, dto.AccountNumber, dto.AccountHolder, dto.CryptoNetwork, dto.WalletAddress);
+        var kycName = await GetKycFullNameAsync(userId, ct);
+        var existing = await _db.SellerPayoutMethods.Where(x => x.SellerUserId == userId).ToListAsync(ct);
+        var makeDefault = dto.IsDefault || existing.Count == 0;
+        if (makeDefault) foreach (var e in existing) e.IsDefault = false;
+        var m = new SellerPayoutMethod
+        {
+            SellerUserId = userId,
+            Type = d.Type,
+            Label = string.IsNullOrWhiteSpace(dto.Label) ? BuildAccountSummary(d) : dto.Label.Trim(),
+            BankBin = d.BankBin,
+            BankName = d.BankName,
+            AccountNumber = d.AccountNumber,
+            AccountHolder = d.AccountHolder,
+            CryptoNetwork = d.CryptoNetwork,
+            WalletAddress = d.WalletAddress,
+            IsDefault = makeDefault,
+            HolderMatchesKyc = ComputeHolderMatch(d, kycName) ?? false,
+        };
+        _db.SellerPayoutMethods.Add(m);
+        await _db.SaveChangesAsync(ct);
+        return MapPayoutMethod(m);
+    }
+
+    public async Task<PayoutMethodDto> UpdatePayoutMethodAsync(Guid userId, Guid id, PayoutMethodSaveDto dto, CancellationToken ct)
+    {
+        await GetSellerForUserAsync(userId, ct);
+        var m = await _db.SellerPayoutMethods.FirstOrDefaultAsync(x => x.Id == id && x.SellerUserId == userId, ct)
+            ?? throw new AppException("Không tìm thấy tài khoản nhận tiền", 404);
+        var d = ValidateAndNormalizePayout(dto.Type, dto.BankBin, dto.BankName, dto.AccountNumber, dto.AccountHolder, dto.CryptoNetwork, dto.WalletAddress);
+        var kycName = await GetKycFullNameAsync(userId, ct);
+        m.Type = d.Type;
+        m.Label = string.IsNullOrWhiteSpace(dto.Label) ? BuildAccountSummary(d) : dto.Label.Trim();
+        m.BankBin = d.BankBin;
+        m.BankName = d.BankName;
+        m.AccountNumber = d.AccountNumber;
+        m.AccountHolder = d.AccountHolder;
+        m.CryptoNetwork = d.CryptoNetwork;
+        m.WalletAddress = d.WalletAddress;
+        m.HolderMatchesKyc = ComputeHolderMatch(d, kycName) ?? false;
+        m.UpdatedAt = DateTime.UtcNow;
+        if (dto.IsDefault && !m.IsDefault)
+        {
+            foreach (var e in await _db.SellerPayoutMethods.Where(x => x.SellerUserId == userId && x.Id != id).ToListAsync(ct))
+                e.IsDefault = false;
+            m.IsDefault = true;
+        }
+        await _db.SaveChangesAsync(ct);
+        return MapPayoutMethod(m);
+    }
+
+    public async Task DeletePayoutMethodAsync(Guid userId, Guid id, CancellationToken ct)
+    {
+        await GetSellerForUserAsync(userId, ct);
+        var m = await _db.SellerPayoutMethods.FirstOrDefaultAsync(x => x.Id == id && x.SellerUserId == userId, ct)
+            ?? throw new AppException("Không tìm thấy tài khoản nhận tiền", 404);
+        var wasDefault = m.IsDefault;
+        _db.SellerPayoutMethods.Remove(m);
+        await _db.SaveChangesAsync(ct);
+        // Nếu xoá tài khoản mặc định → đặt cái còn lại mới nhất làm mặc định.
+        if (wasDefault)
+        {
+            var next = await _db.SellerPayoutMethods.Where(x => x.SellerUserId == userId)
+                .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct);
+            if (next != null) { next.IsDefault = true; await _db.SaveChangesAsync(ct); }
+        }
+    }
+
+    public async Task<PayoutMethodDto> SetDefaultPayoutMethodAsync(Guid userId, Guid id, CancellationToken ct)
+    {
+        await GetSellerForUserAsync(userId, ct);
+        var all = await _db.SellerPayoutMethods.Where(x => x.SellerUserId == userId).ToListAsync(ct);
+        var m = all.FirstOrDefault(x => x.Id == id) ?? throw new AppException("Không tìm thấy tài khoản nhận tiền", 404);
+        foreach (var e in all) e.IsDefault = e.Id == id;
+        m.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return MapPayoutMethod(m);
+    }
+
+    private record PayoutDetails(string Type, string? BankBin, string? BankName, string? AccountNumber,
+        string? AccountHolder, string? CryptoNetwork, string? WalletAddress);
+
+    /// <summary>Kiểm tra & chuẩn hoá thông tin nhận tiền theo từng phương thức. Ném lỗi nếu thiếu/sai định dạng.</summary>
+    private static PayoutDetails ValidateAndNormalizePayout(string? type, string? bankBin, string? bankName,
+        string? accountNumber, string? accountHolder, string? network, string? address)
+    {
+        static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+        var t = (type ?? "").Trim();
+
+        if (string.Equals(t, "Bank", StringComparison.OrdinalIgnoreCase))
+        {
+            var bn = Clean(bankName);
+            var num = Clean(accountNumber);
+            var holder = Clean(accountHolder);
+            if (string.IsNullOrEmpty(bn)) throw new AppException("Vui lòng chọn ngân hàng.");
+            if (string.IsNullOrEmpty(num) || !System.Text.RegularExpressions.Regex.IsMatch(num, @"^\d{6,19}$"))
+                throw new AppException("Số tài khoản không hợp lệ (6-19 chữ số).");
+            if (string.IsNullOrEmpty(holder)) throw new AppException("Vui lòng nhập tên chủ tài khoản.");
+            return new PayoutDetails("Bank", Clean(bankBin), bn, num, holder.ToUpperInvariant(), null, null);
+        }
+        if (string.Equals(t, "Momo", StringComparison.OrdinalIgnoreCase))
+        {
+            var num = Clean(accountNumber);
+            var holder = Clean(accountHolder);
+            if (string.IsNullOrEmpty(num) || !System.Text.RegularExpressions.Regex.IsMatch(num, @"^0\d{9}$"))
+                throw new AppException("Số điện thoại MoMo không hợp lệ (10 số, bắt đầu bằng 0).");
+            if (string.IsNullOrEmpty(holder)) throw new AppException("Vui lòng nhập tên chủ ví MoMo.");
+            return new PayoutDetails("Momo", null, null, num, holder.ToUpperInvariant(), null, null);
+        }
+        if (string.Equals(t, "Usdt", StringComparison.OrdinalIgnoreCase))
+        {
+            var net = (Clean(network) ?? "TRC20").ToUpperInvariant();
+            var addr = Clean(address);
+            if (string.IsNullOrEmpty(addr)) throw new AppException("Vui lòng nhập địa chỉ ví USDT.");
+            if (net == "TRC20" && !System.Text.RegularExpressions.Regex.IsMatch(addr, @"^T[1-9A-HJ-NP-Za-km-z]{33}$"))
+                throw new AppException("Địa chỉ ví TRC20 không hợp lệ (bắt đầu bằng T, dài 34 ký tự).");
+            if ((net == "ERC20" || net == "BEP20") && !System.Text.RegularExpressions.Regex.IsMatch(addr, @"^0x[0-9a-fA-F]{40}$"))
+                throw new AppException($"Địa chỉ ví {net} không hợp lệ (bắt đầu bằng 0x, dài 42 ký tự).");
+            return new PayoutDetails("Usdt", null, null, null, null, net, addr);
+        }
+        throw new AppException("Phương thức nhận tiền không hợp lệ.");
+    }
+
+    private static string BuildAccountSummary(PayoutDetails d) => d.Type switch
+    {
+        "Bank" => $"{d.BankName} · {d.AccountNumber} · {d.AccountHolder}",
+        "Momo" => $"MoMo {d.AccountNumber} · {d.AccountHolder}",
+        "Usdt" => $"USDT {d.CryptoNetwork} · {d.WalletAddress}",
+        _ => "",
+    };
+
+    /// <summary>Đối chiếu tên chủ TK với tên KYC. null = không thể xác minh (USDT, hoặc chưa có tên KYC trên hồ sơ).</summary>
+    private static bool? ComputeHolderMatch(PayoutDetails d, string? kycFullName)
+    {
+        if (d.Type != "Bank" && d.Type != "Momo") return null;
+        var holder = NormalizeName(d.AccountHolder);
+        var kyc = NormalizeName(kycFullName);
+        if (holder.Length == 0 || kyc.Length == 0) return null; // không có tên để so → chưa xác minh
+        return holder == kyc;
+    }
+
+    /// <summary>Chuẩn hoá tên để so khớp: bỏ dấu, viết hoa, gộp khoảng trắng.</summary>
+    private static string NormalizeName(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        var normalized = s.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in normalized)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(c);
+        }
+        var ascii = sb.ToString().Normalize(System.Text.NormalizationForm.FormC).ToUpperInvariant();
+        ascii = System.Text.RegularExpressions.Regex.Replace(ascii, @"[^A-Z0-9]+", " ").Trim();
+        return ascii;
+    }
+
+    private async Task<string?> GetKycFullNameAsync(Guid userId, CancellationToken ct)
+    {
+        var kyc = await _db.KycSubmissions
+            .Where(k => k.UserId == userId && k.Status == KycStatus.Approved)
+            .OrderByDescending(k => k.ReviewedAt ?? k.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        return kyc?.FullName;
+    }
+
+    private static PayoutMethodDto MapPayoutMethod(SellerPayoutMethod m) => new(
+        m.Id, m.Type, m.Label, m.BankBin, m.BankName, m.AccountNumber, m.AccountHolder,
+        m.CryptoNetwork, m.WalletAddress, m.IsDefault, m.HolderMatchesKyc, m.CreatedAt);
 
     private static SellerProductDto MapProduct(Product p, List<InventoryItem> inv) => new(
         p.Id, p.Slug, p.Title, p.CategorySlug, p.Price, p.ComparePrice,
@@ -575,7 +933,8 @@ public class SellerService
     }
 
     public static WithdrawDto MapWithdraw(WithdrawRequest w) => new(
-        w.Id, w.Amount, w.Method, w.Account, w.Status.ToString(), w.Note, w.AdminNote, w.CreatedAt, w.ProcessedAt);
+        w.Id, w.Amount, w.Method, w.Account, w.Status.ToString(), w.Note, w.AdminNote, w.CreatedAt, w.ProcessedAt,
+        w.BankName, w.AccountNumber, w.AccountHolder, w.CryptoNetwork, w.WalletAddress, w.HolderMatchesKyc, w.PayoutReference);
 
     private string SafeDecrypt(string stored)
     {

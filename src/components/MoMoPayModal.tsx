@@ -2,12 +2,18 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CheckCircle2, Loader2, ExternalLink, X, Clock, Smartphone } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import type { ApiMoMoPayResult } from "@/lib/apiTypes";
+import type { ApiMoMoPayResult, ApiMoMoCheckResult } from "@/lib/apiTypes";
 import { formatVND } from "@/lib/format";
 import { isPaymentDone } from "@/lib/paymentStatus";
 
 const MOMO_COLOR = "#ae2070";
 const TIMEOUT_SECS = 10 * 60; // 10 minutes
+
+// MoMo trả `qrCodeUrl` là CHUỖI nội dung QR (deeplink/URL), không phải ảnh —
+// phải tự render thành ảnh QR (giống ZaloPay/VNPay). Fallback về payUrl nếu thiếu.
+function qrImage(content: string): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(content)}&size=200x200&margin=8`;
+}
 
 export function MoMoPayModal({
   orderId,
@@ -18,6 +24,7 @@ export function MoMoPayModal({
   onSuccess,
   onCancel,
   statusUrl,
+  checkUrl,
   subjectLabel = "Đơn hàng",
   successText = "Đang chuyển đến đơn hàng…",
 }: {
@@ -29,16 +36,19 @@ export function MoMoPayModal({
   onSuccess: () => void;
   onCancel: () => void;
   statusUrl?: string;
+  checkUrl?: string;
   subjectLabel?: string;
   successText?: string;
 }) {
   const [phase, setPhase] = useState<"waiting" | "success" | "failed">("waiting");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECS);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const checkRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopAll = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
+    if (checkRef.current) clearInterval(checkRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
   }, []);
 
@@ -51,7 +61,7 @@ export function MoMoPayModal({
       });
     }, 1000);
 
-    // Poll payment status every 3 seconds
+    // Poll payment status every 3 seconds (bắt được path IPN đã cập nhật DB)
     const url = statusUrl ?? `/api/orders/${orderId}`;
     pollRef.current = setInterval(async () => {
       try {
@@ -64,8 +74,21 @@ export function MoMoPayModal({
       } catch { /* ignore transient errors */ }
     }, 3000);
 
+    // Chủ động hỏi MoMo (query API) mỗi 5s — không phụ thuộc IPN tới được server.
+    if (checkUrl) {
+      checkRef.current = setInterval(async () => {
+        try {
+          const res = await apiFetch<ApiMoMoCheckResult>(checkUrl, { method: "POST", token });
+          if (res.done) {
+            stopAll();
+            setPhase(isPaymentDone(res.status).failed ? "failed" : "success");
+          }
+        } catch { /* ignore transient errors */ }
+      }, 5000);
+    }
+
     return stopAll;
-  }, [orderId, token, statusUrl, stopAll]);
+  }, [orderId, token, statusUrl, checkUrl, stopAll]);
 
   // Auto-navigate on success
   useEffect(() => {
@@ -106,11 +129,11 @@ export function MoMoPayModal({
               <p className="num mt-1 mb-5 text-2xl font-extrabold text-accent">{formatVND(total)}</p>
 
               {/* QR code */}
-              {momoResult.qrCodeUrl ? (
+              {(momoResult.qrCodeUrl || momoResult.payUrl) ? (
                 <div className="mb-4">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={momoResult.qrCodeUrl}
+                    src={qrImage(momoResult.qrCodeUrl || momoResult.payUrl)}
                     alt="MoMo QR Code"
                     width={200}
                     height={200}

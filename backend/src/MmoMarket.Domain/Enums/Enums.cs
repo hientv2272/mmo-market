@@ -56,7 +56,8 @@ public enum WalletTxnType
     Commission = 4,
     Bonus = 5,
     Deposit = 6,        // cọc đăng tin bị khóa (P1.4)
-    DepositRefund = 7   // hoàn cọc đăng tin
+    DepositRefund = 7,  // hoàn cọc đăng tin
+    RevenueToWallet = 8 // seller rút doanh thu vào ví nội bộ
 }
 
 public enum ListingDepositStatus

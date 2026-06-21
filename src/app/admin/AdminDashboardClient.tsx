@@ -17,17 +17,14 @@ export function AdminDashboardClient() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
     apiFetch<ApiAdminMetrics>("/api/admin/metrics", { token })
       .then((d) => setM(d))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [token]);
 
-  if (authLoading || loading) {
+  if (authLoading || (token && loading)) {
     return (
       <DashboardLayout variant="admin" groups={adminNav} title="Admin Dashboard" subtitle="Đang tải...">
         <div className="grid place-items-center py-20"><Loader2 className="size-6 animate-spin text-text-muted" /></div>

@@ -20,7 +20,10 @@ export function Countdown({ endsAt, variant = "text" }: { endsAt: string; varian
   const [now, setNow] = useState(0);
 
   useEffect(() => {
+    // Lấy thời gian thật + bật render sau khi mount để tránh lệch hydration giữa server/client.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);

@@ -248,6 +248,7 @@ export function CheckoutView() {
         total={momoModal.order.total}
         momoResult={momoModal.result}
         token={token}
+        checkUrl={`/api/orders/${momoModal.order.id}/momo-check`}
         onSuccess={() => {
           setMomoModal(null);
           router.push(`/account/orders?just=${momoModal.order.id}`);

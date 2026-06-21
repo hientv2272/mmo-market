@@ -9,6 +9,9 @@ namespace MmoMarket.Application.Payments;
 
 public record MoMoPayResult(string PayUrl, string? DeepLink, string? QrCodeUrl, string RequestId);
 
+/// <summary>Kết quả tra cứu trạng thái giao dịch ở MoMo (query API).</summary>
+public record MoMoQueryStatus(bool Found, bool Paid, decimal Amount);
+
 public record MoMoIpnDto(
     string PartnerCode,
     string OrderId,
@@ -32,6 +35,7 @@ public class MoMoService
     private readonly string _accessKey;
     private readonly string _secretKey;
     private readonly string _apiEndpoint;
+    private readonly string _queryEndpoint;
     private readonly string _returnUrl;
     private readonly string _returnUrlWallet;
     private readonly string _ipnUrl;
@@ -43,6 +47,8 @@ public class MoMoService
         _accessKey = s["AccessKey"] ?? "";
         _secretKey = s["SecretKey"] ?? "";
         _apiEndpoint = s["ApiEndpoint"] ?? "https://test-payment.momo.vn/v2/gateway/api/create";
+        // Endpoint tra trạng thái giao dịch — cùng host với create (.../create → .../query).
+        _queryEndpoint = s["QueryEndpoint"] ?? _apiEndpoint.Replace("/create", "/query");
         _returnUrl = s["ReturnUrl"] ?? "http://localhost:3000/account/orders";
         _returnUrlWallet = s["ReturnUrlWallet"] ?? _returnUrl.Replace("/account/orders", "/account/wallet");
         _ipnUrl = s["IpnUrl"] ?? "https://localhost/api/payment/momo/ipn";
@@ -104,6 +110,47 @@ public class MoMoService
             requestId);
     }
 
+    /// <summary>
+    /// Tra trạng thái giao dịch chủ động qua MoMo query API (.../query) — KHÔNG phụ thuộc IPN.
+    /// <paramref name="orderId"/> phải là orderId đã dùng khi tạo thanh toán (chính là id giao dịch nội bộ).
+    /// Trả Paid=true khi MoMo báo resultCode=0 (đã thu tiền). Lỗi/không tồn tại → Found=false.
+    /// </summary>
+    public async Task<MoMoQueryStatus> QueryTransactionAsync(Guid orderId, CancellationToken ct = default)
+    {
+        var requestId = Guid.NewGuid().ToString();
+        // Signature fields phải theo thứ tự alphabet.
+        var rawSig = $"accessKey={_accessKey}&orderId={orderId}" +
+                     $"&partnerCode={_partnerCode}&requestId={requestId}";
+        var payload = new
+        {
+            partnerCode = _partnerCode,
+            requestId,
+            orderId = orderId.ToString(),
+            lang = "vi",
+            signature = HmacSha256(rawSig),
+        };
+
+        try
+        {
+            var content = new StringContent(
+                JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+            var response = await _http.PostAsync(_queryEndpoint, content, ct);
+            if (!response.IsSuccessStatusCode) return new MoMoQueryStatus(false, false, 0);
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var res = JsonSerializer.Deserialize<MoMoApiResponse>(json, opts);
+            if (res == null) return new MoMoQueryStatus(false, false, 0);
+
+            // resultCode=0 → đã thanh toán thành công; khác → chờ/huỷ/lỗi (vẫn coi là Found để biết đã có giao dịch).
+            return new MoMoQueryStatus(true, res.ResultCode == 0, res.Amount);
+        }
+        catch
+        {
+            return new MoMoQueryStatus(false, false, 0);
+        }
+    }
+
     // Verify server-to-server IPN signature from MoMo
     public bool VerifyIpnSignature(MoMoIpnDto dto)
     {
@@ -128,4 +175,5 @@ file record MoMoApiResponse(
     [property: JsonPropertyName("message")] string Message,
     [property: JsonPropertyName("payUrl")] string? PayUrl,
     [property: JsonPropertyName("deeplink")] string? Deeplink,
-    [property: JsonPropertyName("qrCodeUrl")] string? QrCodeUrl);
+    [property: JsonPropertyName("qrCodeUrl")] string? QrCodeUrl,
+    [property: JsonPropertyName("amount")] long Amount = 0);

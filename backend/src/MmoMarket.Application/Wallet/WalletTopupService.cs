@@ -24,8 +24,9 @@ public class WalletTopupService
     private readonly NotificationService _notify;
     private readonly TransactionLimitService _limits;
     private readonly SePayPgService _sepay;
-    public WalletTopupService(IAppDbContext db, NotificationService notify, TransactionLimitService limits, SePayPgService sepay)
-    { _db = db; _notify = notify; _limits = limits; _sepay = sepay; }
+    private readonly MoMoService _momo;
+    public WalletTopupService(IAppDbContext db, NotificationService notify, TransactionLimitService limits, SePayPgService sepay, MoMoService momo)
+    { _db = db; _notify = notify; _limits = limits; _sepay = sepay; _momo = momo; }
 
     // Hình thức nạp hợp lệ — đồng bộ với PaymentMethod (trừ Wallet, vì nạp vào chính ví).
     private static readonly string[] AllowedMethods = { "VietQr", "Momo", "ZaloPay", "VnPay", "Usdt" };
@@ -124,12 +125,23 @@ public class WalletTopupService
         {
             if (txn.Status != WalletTxnStatus.Pending) continue;
             var code = ExtractCode(txn.Note);
+            // VietQR/SePay: tra REST API theo mã NAP.
             if (!string.IsNullOrEmpty(code) && _sepay.Enabled)
             {
                 var st = await _sepay.GetOrderStatusAsync(code, ct);
                 if (st.Found && SePayPgService.IsPaid(st.Status))
                 {
                     if (await CreditAsync(txn, st.Amount, ct)) changed++;
+                    continue;
+                }
+            }
+            // MoMo: tra query API theo id giao dịch (orderId MoMo = txn.Id) — không phụ thuộc IPN.
+            if (IsMomoTopup(txn.Note))
+            {
+                var q = await _momo.QueryTransactionAsync(txn.Id, ct);
+                if (q.Found && q.Paid)
+                {
+                    if (await CreditAsync(txn, q.Amount, ct)) changed++;
                     continue;
                 }
             }
@@ -157,6 +169,10 @@ public class WalletTopupService
         var m = Regex.Match(note ?? "", CodePattern, RegexOptions.IgnoreCase);
         return m.Success ? m.Value.ToUpper() : "";
     }
+
+    // Note nạp ví có dạng "Nạp ví qua {method} · {code}" — nhận diện giao dịch MoMo để đối soát đúng cổng.
+    private static bool IsMomoTopup(string note)
+        => (note ?? "").Contains("qua Momo", StringComparison.OrdinalIgnoreCase);
 
     // Idempotent — cộng ví theo id giao dịch (MoMo/ZaloPay/VNPay/USDT đều echo id này về trong IPN).
     // paidAmount: số tiền cổng báo đã thu (null = đã verify nơi khác, vd USDT khớp on-chain).

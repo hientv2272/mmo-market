@@ -97,6 +97,24 @@ public class WalletController : ControllerBase
         return await _momo.CreatePaymentAsync(t.Id, t.Amount, WalletTopupService.ExtractCode(t.Note), _momo.WalletReturnUrl);
     }
 
+    /// <summary>Modal poll endpoint: tra trạng thái nạp ở MoMo (query API), tự cộng ví nếu đã thu tiền.</summary>
+    [HttpPost("topup/{id:guid}/momo-check")]
+    public async Task<IActionResult> TopupMomoCheck(Guid id, CancellationToken ct)
+    {
+        var t = await _topup.GetTxnForUserAsync(Uid, id, ct);
+        if (t.Status != WalletTxnStatus.Pending)
+            return Ok(new { done = true, status = t.Status == WalletTxnStatus.Completed ? "Completed" : "FAILED" });
+
+        var q = await _momo.QueryTransactionAsync(t.Id, ct);
+        if (q.Found && q.Paid)
+        {
+            if (await _topup.ConfirmByIdAsync(t.Id, q.Amount, ct))
+                return Ok(new { done = true, status = "CAPTURED" });
+            return Ok(new { done = false, status = "AMOUNT_MISMATCH" });
+        }
+        return Ok(new { done = false, status = "PENDING" });
+    }
+
     [HttpPost("topup/{id:guid}/zalopay-pay")]
     public async Task<ZaloPayResult> TopupZalo(Guid id, CancellationToken ct)
     {
